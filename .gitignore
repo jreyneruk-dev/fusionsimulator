@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.vercel/
+*.log
+.DS_Store
+.env*
+.vercel
+
+# Thread-local tooling state
+.freebuff/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+next-env.d.ts
