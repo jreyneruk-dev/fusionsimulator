@@ -38,6 +38,11 @@ export interface TickSummary {
   error?: string;
 }
 
+/** One place to build a tick summary: zero-value defaults, callers override what differs. */
+function summary(over: Partial<TickSummary> & { ts: number }): TickSummary {
+  return { ok: true, decisions: 0, fills: 0, jevCostUsd: 0, jevCapped: false, provider: "none", notes: [], ...over };
+}
+
 function seedBees(cfg: EngineConfig, now: number): BeeAccount[] {
   return BEE_SEEDS.map((s) => ({
     beeId: s.beeId,
@@ -61,16 +66,16 @@ function seedBees(cfg: EngineConfig, now: number): BeeAccount[] {
   }));
 }
 
-export async function productionTick(): Promise<TickSummary> {
+/** `now` is injectable so the UTC-rollover semantics are provable against a real DB. */
+export async function productionTick(now: number = Date.now()): Promise<TickSummary> {
   const cfg = loadConfig();
-  const now = Date.now();
   try {
     // Cross-isolate single-flight: on Vercel, overlapping scheduler pings are
     // served by separate isolates, so an in-process mutex cannot prevent
     // double fills. Losing claimants skip instead of queueing behind the lock.
     const until = now + 55_000;
     if (!(await claimTick(now, until))) {
-      return { ok: true, ts: now, decisions: 0, fills: 0, jevCostUsd: 0, jevCapped: false, provider: "skipped", notes: ["another tick holds the lock"], skipped: true };
+      return summary({ ts: now, provider: "skipped", notes: ["another tick holds the lock"], skipped: true });
     }
     try {
       // DB config first: fail fast on misconfiguration instead of burning a
@@ -93,8 +98,7 @@ export async function productionTick(): Promise<TickSummary> {
         await pruneOldRows(30); // best-effort retention, runs at most once a day
       }
 
-      return {
-        ok: true,
+      return summary({
         ts: now,
         decisions: out.decisions.length,
         fills: out.fills.length,
@@ -102,21 +106,11 @@ export async function productionTick(): Promise<TickSummary> {
         jevCapped: out.jevCapped,
         provider: out.provider,
         notes: out.notes,
-      };
+      });
     } finally {
       await releaseTick(until).catch(() => {});
     }
   } catch (err) {
-    return {
-      ok: false,
-      ts: now,
-      decisions: 0,
-      fills: 0,
-      jevCostUsd: 0,
-      jevCapped: false,
-      provider: "error",
-      notes: [],
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return summary({ ok: false, ts: now, provider: "error", error: err instanceof Error ? err.message : String(err) });
   }
 }
