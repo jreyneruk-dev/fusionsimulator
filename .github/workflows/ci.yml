@@ -28,3 +28,29 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  beebots:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: beebots
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: beebots/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Engine tests (risk gates, ledger, fake-Jev tick e2e)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
