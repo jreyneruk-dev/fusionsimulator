@@ -2,17 +2,21 @@
  * Builds the per-coin MarketSnapshot map from OKX public data.
  * Heavy per-coin indicator fetches are cached (default 5 min); tickers are
  * refreshed every call so held positions keep moving every tick.
+ *
+ * All series arrive CHRONOLOGICAL (oldest first) per the client's orientation
+ * contract; indicators are only ever fed time-ascending data.
  */
 
 import type { MarketData, MarketSnapshot } from "@/lib/types";
 import { rsi, bollinger, atr, donchianPct, ensembleScore, returnOverBars, zScore } from "@/lib/indicators";
 import {
   fetchTickers,
-  fetchCandles,
+  fetchCandleSeries,
   fetchFundingRate,
   fetchFundingHistory,
   fetchOpenInterest,
   tickerVolumeUsd,
+  type FundingRow,
 } from "@/lib/okx/client";
 
 /** Base symbols excluded from the crypto-only universe (extend via NON_CRYPTO_BLOCKLIST). */
@@ -22,33 +26,11 @@ export const NON_CRYPTO = new Set(
   (process.env.NON_CRYPTO_BLOCKLIST || DEFAULT_BLOCKLIST).split(",").map((s) => s.trim().toUpperCase()),
 );
 
-const num = (v: string | undefined) => (v === undefined ? NaN : Number(v));
-void num;
-
-async function candles(instId: string, bar: string, limit: number): Promise<{ h: number; l: number; c: number; o: number; v: number; ts: number }[]> {
-  let rows = await fetchCandles(instId, bar, Math.min(limit, 300));
-  if (rows.length >= 300 && limit > 300) {
-    const older = await fetchCandlesHistory(instId, bar, Number(rows[rows.length - 1][0]), limit - 300);
-    rows = rows.concat(older);
-  }
-  return rows
-    .map((r) => ({ ts: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) }))
-    .filter((b) => Number.isFinite(b.c));
+function msg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
-async function fetchCandlesHistory(instId: string, bar: string, afterTs: number, limit: number): Promise<string[][]> {
-  const url = new URL("/api/v5/market/history-candles", process.env.OKX_API_BASE || "https://eea.okx.com");
-  url.searchParams.set("instId", instId);
-  url.searchParams.set("bar", bar);
-  url.searchParams.set("after", String(afterTs));
-  url.searchParams.set("limit", String(Math.min(limit, 100)));
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000), cache: "no-store" });
-  if (!res.ok) return [];
-  const body = (await res.json()) as { code: string; data: string[][] };
-  return body.code === "0" ? (body.data ?? []) : [];
-}
-
-/** Indicators computable from one 15m candle series. */
+/** Indicators computable from one chronological 15m candle series. */
 function from15m(bars: { h: number; l: number; c: number; v: number }[]) {
   const closes = bars.map((b) => b.c);
   const bb = bollinger(closes);
@@ -60,56 +42,62 @@ function from15m(bars: { h: number; l: number; c: number; v: number }[]) {
   return {
     rsi: rsi(closes),
     pctB: bb ? bb.pctB : null,
-    atrPctRaw: atr(bars),
+    atrRaw: atr(bars),
     donchianPct: donchianPct(bars, 20),
     r1: returnOverBars(closes, 4), // 4 x 15m = 1h
     volZ: hourlyVols.length >= 8 ? zScore(hourlyVols) : null,
   };
 }
 
-export async function refreshCoin(
-  instId: string,
-): Promise<Partial<MarketSnapshot>> {
-  const [bars15m, bars4h, daily, funding, fundHist, oi] = await Promise.all([
-    candles(instId, "15m", 300),
-    candles(instId, "4H", 400),
-    candles(instId, "1D", 9),
-    fetchFundingRate(instId).catch(() => null),
-    fetchFundingHistory(instId, 90).catch(() => []),
-    fetchOpenInterest(instId).catch(() => null),
+/**
+ * Per-coin indicator block. Optional per-fetch failures degrade to nulls with
+ * a warning (deliberate, visible) — they never silently null a whole snapshot.
+ */
+export async function refreshCoin(instId: string, log: (line: string) => void = (l) => console.warn(l)): Promise<Partial<MarketSnapshot>> {
+  const [bars15m, bars4h, daily, funding, fundingRows, oi] = await Promise.all([
+    fetchCandleSeries(instId, "15m", 300),
+    fetchCandleSeries(instId, "4H", 400),
+    fetchCandleSeries(instId, "1D", 9),
+    fetchFundingRate(instId).catch((err) => {
+      log(`[okx] ${instId}: funding-rate unavailable (${msg(err)}) — current funding and fundingZ withheld`);
+      return null;
+    }),
+    fetchFundingHistory(instId, 90).catch((err) => {
+      log(`[okx] ${instId}: funding history unavailable (${msg(err)}) — fundingZ withheld, Bizzy's funding veto is blind`);
+      return [] as FundingRow[];
+    }),
+    fetchOpenInterest(instId).catch((err) => {
+      log(`[okx] ${instId}: open interest unavailable (${msg(err)}) — OI change withheld`);
+      return null;
+    }),
   ]);
 
   const m15 = from15m(bars15m);
   const closes4h = bars4h.map((b) => b.c);
-  const atr15 = m15.atrPctRaw;
+  const dailyCloses = daily.map((b) => b.c);
 
-  // 24h return from the 15m closes (96 bars = 24h) when the daily list is short.
-  const r24 = returnOverBars(bars15m.map((b) => b.c).reverse(), 96);
+  // Chronological: the last bars are the present.
+  const last15 = bars15m[bars15m.length - 1];
+  const todayOpen = daily.length ? daily[daily.length - 1].o : null;
+  const prevRange = daily.length >= 2 ? daily[daily.length - 2].h - daily[daily.length - 2].l : null;
 
-  // Yesterday's range and today's UTC open from daily bars (newest first).
-  let todayOpen: number | null = null;
-  let prevRange: number | null = null;
-  if (daily.length >= 2) {
-    todayOpen = daily[0].o;
-    prevRange = daily[1].h - daily[1].l;
-  }
-
-  const fundingRates = fundHist.map((r) => Number(r[1])).filter(Number.isFinite);
   const frNow = funding ? Number(funding.fundingRate) : NaN;
+  // 30-day funding z (Bizzy's Z2 veto): history + the current rate, chronological.
+  const fundingSeries = Number.isFinite(frNow) ? [...fundingRows.map((r) => r.fundingRate), frNow] : fundingRows.map((r) => r.fundingRate);
 
   return {
     todayOpen,
     prevRange,
     rsi: m15.rsi,
     pctB: m15.pctB,
-    atrPct: atr15 && bars15m.length ? (atr15 / bars15m[bars15m.length - 1].c) * 100 : null,
+    atrPct: m15.atrRaw && last15 ? (m15.atrRaw / last15.c) * 100 : null,
     donchianPct: m15.donchianPct,
     ensemble: ensembleScore(closes4h),
-    r24,
+    r24: returnOverBars(bars15m.map((b) => b.c), 96), // 96 x 15m = 24h
     volZ: m15.volZ,
-    r7d: daily.length >= 8 ? returnOverBars(daily.map((b) => b.c).reverse(), 7) : null,
+    r7d: dailyCloses.length >= 8 ? returnOverBars(dailyCloses, 7) : null,
     funding: Number.isFinite(frNow) ? frNow : null,
-    fundingZ: fundingRates.length ? zScore([...fundingRates].reverse().concat(Number.isFinite(frNow) ? [frNow] : [])) : null,
+    fundingZ: fundingSeries.length >= 8 ? zScore(fundingSeries) : null,
     oi: oi ? Number(oi.oi) : null,
   };
 }
@@ -127,7 +115,8 @@ export async function fullRefresh(coins: string[], prev?: MarketData): Promise<M
     targets.map(async (instId) => {
       try {
         return [instId, await refreshCoin(instId)] as const;
-      } catch {
+      } catch (err) {
+        console.warn(`[okx] ${instId}: refresh failed (${msg(err)}) — snapshot empty for this tick`);
         return [instId, {}] as const;
       }
     }),
