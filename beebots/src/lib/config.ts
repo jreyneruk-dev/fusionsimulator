@@ -43,6 +43,8 @@ export interface EngineConfig {
   jevProvider: JevProvider;
   /** Base symbols excluded from the tradable universe (crypto-only rule). */
   nonCryptoBlocklist: Set<string>;
+  /** OKX public API root (EEA site by default; no keys needed). */
+  okxApiBase: string;
   breakout: StyleRisk & { universe: string[] };
   trend: StyleRisk & { universe: string[]; minOpenProb: number; minConvictionIdx: number; minSizeUsd: number; stopAtrMult: number };
   momentum: StyleRisk & { candidates: number; stopAtrMult: number };
@@ -73,6 +75,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
     jevDailyUsdCap: num(env.JEV_DAILY_USD_CAP, 0.2),
     jevTimeoutMs: num(env.JEV_TIMEOUT_MS, 2500),
     jevProvider: resolveJevProvider(env, jevModel),
+    okxApiBase: env.OKX_API_BASE || "https://eea.okx.com",
     nonCryptoBlocklist: new Set(
       (env.NON_CRYPTO_BLOCKLIST || "NVDA,OPENAI,ANTHROPIC,XAU,CL,TSLA,META,GOOGL,AMZN,SPY")
         .split(",")

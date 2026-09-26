@@ -142,6 +142,22 @@ async function main() {
   ok(skipped === 4, `expected 4 ticks to skip, got ${skipped}`);
   ok(fillsAfterBurst - fillsBeforeBurst <= 4, `fills grew by ${fillsAfterBurst - fillsBeforeBurst} — more than one tick's worth: double fill`);
 
+  // 11. Data retention: pruneOldRows removes old rows, keeps recent ones.
+  const recent = await sql`SELECT count(*)::int AS n FROM decisions`;
+  const oldTs = Date.now() - 45 * 86_400_000;
+  await sql`INSERT INTO decisions (ts, bee_id, style, final_action, size_usd, vetoed, provider) VALUES (${oldTs}, 'waggle', 'breakout', 'ANCIENT', 0, false, 'none')`;
+  await sql`INSERT INTO fills (ts, bee_id, inst_id, side, kind, notional_usd, price, fee_usd, spread_cost_usd) VALUES (${oldTs}, 'waggle', 'BTC-USDT-SWAP', 'long', 'close', 1, 1, 0, 0)`;
+  await sql`INSERT INTO equity_history (ts, bee_id, equity_usd, fees_paid, funding_paid, spread_paid) VALUES (${oldTs}, 'waggle', 1, 0, 0, 0)`;
+  const { pruneOldRows } = await import("../src/lib/db.ts");
+  await pruneOldRows(30);
+  const afterPrune = await sql`SELECT count(*)::int AS n FROM decisions`;
+  const ancientLeft = await sql`SELECT count(*)::int AS n FROM decisions WHERE final_action = 'ANCIENT'`;
+  ok(Number(afterPrune[0].n) === Number(recent[0].n), `prune removed recent decisions (${recent[0].n} -> ${afterPrune[0].n})`);
+  ok(Number(ancientLeft[0].n) === 0, "the ANCIENT decision survived pruning");
+  const otherAncient = await sql`SELECT (SELECT count(*)::int FROM fills WHERE notional_usd = 1) AS f, (SELECT count(*)::int FROM equity_history WHERE equity_usd = 1) AS e`;
+  ok(Number(otherAncient[0].f) === 0 && Number(otherAncient[0].e) === 0, "old fills/equity rows survived pruning");
+  log(`[${++step}] pruneOldRows: old test rows gone from all three tables, recent rows kept`);
+
   log(`\nALL ${step} STEPS PASSED — the DB-backed loop is real.`);
 }
 

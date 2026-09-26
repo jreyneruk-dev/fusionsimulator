@@ -1,4 +1,4 @@
-import type { BeeAccount, MarketData, MarketSnapshot, MoveMenu, Style } from "@/lib/types";
+import type { BeeAccount, JevVerdict, MarketData, MarketSnapshot, MoveMenu, Style } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
 import { loadConfig } from "@/lib/config";
 
@@ -58,6 +58,9 @@ export function cfg(over: Partial<EngineConfig> = {}): EngineConfig {
   const base = loadConfig({
     BEE_START_EQUITY_USD: "333",
     MIN_24H_VOL_USD: "1000000",
+    // Pin the keyless provider so tests never depend on machine env keys.
+    AI_GATEWAY_API_KEY: "",
+    OPENAI_COMPAT_BASE_URL: "",
   });
   return { ...base, ...over };
 }
@@ -69,4 +72,21 @@ export function menuOf(beeId: string, style: Style, options: MoveMenu["options"]
     momentum: ["tipsy", "buzzed", "wasted", "legendary"],
   };
   return { beeId, style, options, convictionScale: scales[style], forced };
+}
+
+/** Build a test verdict: choices default to the first menu option at top conviction. */
+export function verdict(beeId: string, menu: MoveMenu, over: Partial<JevVerdict> = {}): JevVerdict {
+  const choice = over.choice ?? menu.options[0]?.action ?? "WAIT";
+  return {
+    beeId,
+    choice,
+    probabilities: { [choice]: 0.9 },
+    conviction: menu.convictionScale.length - 1,
+    convictionScaleLabel: menu.convictionScale[menu.convictionScale.length - 1],
+    provider: "fake",
+    inputTokens: 100,
+    costUsd: 0,
+    latencyMs: 1,
+    ...over,
+  };
 }
