@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --color-hive: #f59e0b;      /* amber-500 — the hive brand colour */
+  --color-hive-dark: #b45309;
+  --color-hive-light: #fffbeb;
+  --color-comb: #1c1917;
+  --color-cell: #292524;
+  --color-wax: #78716c;
+}
+
+body {
+  @apply bg-comb text-stone-200 antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.wrap {
+  @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+}
