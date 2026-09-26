@@ -15,6 +15,31 @@ export const TAKER_FEE_RATE = 0.0005; // OKX X-Perps taker 0.05% (docs/COSTS.md)
 /** Round-trip fee estimate used against the daily fee budget. */
 export const ROUND_TRIP_FEE_RATE = TAKER_FEE_RATE * 2;
 
+/**
+ * Bizzy's Z2 funding filter threshold (BIZZY_BEE.md, "Strategy Z2 (filter):
+ * funding rate as a veto, not a trigger"; BIS WP 1087 "a high crypto carry
+ * predicts future price crashes").
+ */
+export const FUNDING_Z_BLOCK = 1.5;
+
+/**
+ * Z2 funding veto on NEW breakout longs: "block longs when the coin's 30-day
+ * funding z > 1.5. Prefer the short side of an upper-band signal when z > 2.
+ * Never buy on negative funding alone."
+ *
+ * When fundingZ is WITHHELD his doc sets no rule, so the veto fails open —
+ * the risk layer's other gates and the code stops still apply. The withheld
+ * case is visible to Jev and the dashboard through the bee state (fundingZ:
+ * null) rather than silently treated as safe.
+ */
+export function fundingVeto(instId: string, fundingZ: number | null): { vetoed: boolean; reason: string | null } {
+  if (fundingZ === null) return { vetoed: false, reason: `fundingZ withheld — Z2 veto cannot run for ${instId}` };
+  if (fundingZ > FUNDING_Z_BLOCK) {
+    return { vetoed: true, reason: `Z2 funding veto: ${instId} 30-day funding z ${fundingZ.toFixed(2)} > ${FUNDING_Z_BLOCK}` };
+  }
+  return { vetoed: false, reason: null };
+}
+
 export interface Caps {
   tradesLeft: number;
   feeBudgetLeft: number;
@@ -174,6 +199,19 @@ export function applyRisk(
   if (gateFail) {
     if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: gateFail };
     return holdFor(bee, gateFail);
+  }
+  // Z2 funding veto (BIZZY_BEE.md): blocks NEW breakout longs. Adds to the
+  // held coin and re-opens of the same long don't change net exposure, so
+  // they are exempt — the veto never forces a close (that's the stops' job).
+  if (bee.style === "breakout" && chosen.side === "long" && chosen.kind !== "add" && chosen.instId) {
+    const sameExposure = bee.position && bee.position.instId === chosen.instId && bee.position.side === "long";
+    if (!sameExposure) {
+      const veto = fundingVeto(chosen.instId, market.byInst[chosen.instId]?.fundingZ ?? null);
+      if (veto.vetoed) {
+        if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: veto.reason };
+        return holdFor(bee, veto.reason!);
+      }
+    }
   }
   if (opens(chosen.kind) && caps.tradesLeft <= 0) {
     if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: `trade cap reached (${bee.tradesToday} today) — riding until 00:00 UTC` };

@@ -10,6 +10,8 @@ export interface Position {
   entryPrice: number;
   entryTs: number;
   leverage: number;
+  /** Best favorable price since entry (ratchet anchor for trailing stops) */
+  bestPrice?: number;
 }
 
 export interface BeeAccount {
@@ -56,6 +58,8 @@ export interface MarketSnapshot {
   rsi: number | null;
   pctB: number | null;
   atrPct: number | null;
+  /** ATR(14) on 4h bars, as % of price (trend stop scale) */
+  atr4hPct: number | null;
   donchianPct: number | null;
   ensemble: number | null;
   funding: number | null;
@@ -135,6 +139,14 @@ export interface Fill {
   feeUsd: number;
   spreadCostUsd: number;
   realizedPnlUsd: number | null;
+}
+
+/** Why a code stop closed a held position (ported from strategies/*.md). */
+export type StopReason = "breakout_open_stop" | "breakout_day_close" | "trend_atr_trail" | "momentum_atr_trail";
+
+export interface StopCheck {
+  reason: StopReason;
+  detail: string;
 }
 
 /** Result of the risk layer for one bee this tick. */
