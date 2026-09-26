@@ -29,7 +29,7 @@ function gated(snap: MarketSnapshot, minVol: number, maxSpreadBps: number): bool
 
 export function breakoutMenu(bee: BeeAccount, market: MarketData, cfg: EngineConfig): MoveMenu {
   const style = "breakout" as const;
-  // bee.coins and the style universe hold base symbols ("BTC"); the market map is keyed by instId.
+  // Style universes hold base symbols ("BTC"); the market map is keyed by instId.
   const universe = cfg.breakout.universe.map((c) => `${c}-USDT-SWAP`);
   const options: MoveOption[] = [];
   if (!bee.position) {

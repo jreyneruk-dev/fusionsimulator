@@ -15,7 +15,6 @@ export function snapshot(over: Partial<MarketSnapshot> = {}): MarketSnapshot {
     pctB: 0.6,
     atrPct: 1.0,
     atr4hPct: 0.5,
-    donchianPct: 70,
     ensemble: 5,
     funding: 0.0001,
     fundingZ: 0.5,
@@ -37,7 +36,6 @@ export function bee(over: Partial<BeeAccount> & { beeId: string; style: Style })
   return {
     name: over.beeId,
     tagline: "test bee",
-    coins: null,
     startEquityUsd: 333,
     realizedPnl: 0,
     feesPaid: 0,

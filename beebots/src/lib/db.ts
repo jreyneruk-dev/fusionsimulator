@@ -30,8 +30,6 @@ export async function closeDb(): Promise<void> {
   }
 }
 
-
-
 export async function upsertBees(bees: BeeAccount[]): Promise<void> {
   const db = getSql();
   for (const b of bees) {
@@ -76,7 +74,6 @@ export async function loadBees(): Promise<BeeAccount[]> {
     name: r.name as string,
     style: r.style as BeeAccount["style"],
     tagline: r.tagline as string,
-    coins: null,
     startEquityUsd: Number(r.start_equity_usd),
     realizedPnl: Number(r.realized_pnl),
     feesPaid: Number(r.fees_paid),
@@ -185,7 +182,6 @@ export async function pruneOldRows(days: number): Promise<void> {
   await db`DELETE FROM equity_history WHERE ts < ${cutoff}`;
   await db`DELETE FROM fills WHERE ts < ${cutoff}`;
 }
-
 
 
 /**

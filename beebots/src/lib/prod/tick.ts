@@ -70,70 +70,42 @@ export async function productionTick(): Promise<TickSummary> {
     // double fills. Losing claimants skip instead of queueing behind the lock.
     const until = now + 55_000;
     if (!(await claimTick(now, until))) {
+      return { ok: true, ts: now, decisions: 0, fills: 0, jevCostUsd: 0, jevCapped: false, provider: "skipped", notes: ["another tick holds the lock"], skipped: true };
+    }
+    try {
+      // DB config first: fail fast on misconfiguration instead of burning a
+      // full OKX market pull (and its rate-limit budget) before discovering it.
+      let bees = await loadBees();
+      if (bees.length === 0) {
+        bees = seedBees(cfg, now);
+        await upsertBees(bees);
+      }
+      const market = await theHost().market.getMarket();
+      const used = await jevUsedTodayUsd(now);
+      const out = await runTick({ bees, market, cfg, jevUsedTodayUsd: used, now, deps: theHost().deps });
+
+      // Record first (decisions), then the resulting state and fills.
+      await insertDecisions(out.decisions);
+      await insertFills(out.fills);
+      await upsertBees(out.bees);
+      await recordEquity(out.bees, market, now);
+      if (new Date(now).getUTCHours() === 3 && new Date(now).getUTCDate() !== new Date(now - 3_600_000).getUTCDate()) {
+        await pruneOldRows(30); // best-effort retention, runs at most once a day
+      }
+
       return {
         ok: true,
         ts: now,
-        decisions: 0,
-        fills: 0,
-        jevCostUsd: 0,
-        jevCapped: false,
-        provider: "skipped",
-        notes: ["another tick holds the lock"],
-        skipped: true,
+        decisions: out.decisions.length,
+        fills: out.fills.length,
+        jevCostUsd: out.jevCostUsd,
+        jevCapped: out.jevCapped,
+        provider: out.provider,
+        notes: out.notes,
       };
-    }
-    try {
-      return await runTickedBody(cfg, now);
     } finally {
       await releaseTick(until).catch(() => {});
     }
-  } catch (err) {
-    return {
-      ok: false,
-      ts: now,
-      decisions: 0,
-      fills: 0,
-      jevCostUsd: 0,
-      jevCapped: false,
-      provider: "error",
-      notes: [],
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-async function runTickedBody(cfg: ReturnType<typeof loadConfig>, now: number): Promise<TickSummary> {
-  try {
-    // DB config first: fail fast on misconfiguration instead of burning a full
-    // OKX market pull (and its rate-limit budget) before discovering it.
-    let bees = await loadBees();
-    if (bees.length === 0) {
-      bees = seedBees(cfg, now);
-      await upsertBees(bees);
-    }
-    const market = await theHost().market.getMarket();
-    const used = await jevUsedTodayUsd(now);
-    const out = await runTick({ bees, market, cfg, jevUsedTodayUsd: used, now, deps: theHost().deps });
-
-    // Record first (decisions), then the resulting state and fills.
-    await insertDecisions(out.decisions);
-    await insertFills(out.fills);
-    await upsertBees(out.bees);
-    await recordEquity(out.bees, market, now);
-    if (new Date(now).getUTCHours() === 3 && new Date(now).getUTCDate() !== new Date(now - 3_600_000).getUTCDate()) {
-      await pruneOldRows(30); // best-effort retention, runs at most once a day
-    }
-
-    return {
-      ok: true,
-      ts: now,
-      decisions: out.decisions.length,
-      fills: out.fills.length,
-      jevCostUsd: out.jevCostUsd,
-      jevCapped: out.jevCapped,
-      provider: out.provider,
-      notes: out.notes,
-    };
   } catch (err) {
     return {
       ok: false,
