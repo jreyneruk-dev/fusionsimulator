@@ -64,3 +64,11 @@ CREATE TABLE IF NOT EXISTS equity_history (
   spread_paid  DOUBLE PRECISION NOT NULL
 );
 CREATE INDEX IF NOT EXISTS equity_ts_idx ON equity_history (ts DESC);
+
+-- Tick guard: exactly one tick may run at a time, across serverless isolates.
+-- A claim is an atomic INSERT-or-expired-UPDATE on this row (see db.claimTick),
+-- released when the tick completes; the expiry only covers a crashed tick.
+CREATE TABLE IF NOT EXISTS tick_state (
+  key          TEXT PRIMARY KEY,
+  locked_until BIGINT NOT NULL
+);

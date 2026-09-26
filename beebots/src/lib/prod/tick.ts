@@ -13,12 +13,14 @@ import { BEE_SEEDS } from "@/content/bees";
 import { dayKeyOf } from "@/lib/risk";
 import type { BeeAccount } from "@/lib/types";
 import {
+  claimTick,
   insertDecisions,
   insertFills,
   jevUsedTodayUsd,
   loadBees,
   pruneOldRows,
   recordEquity,
+  releaseTick,
   upsertBees,
 } from "@/lib/db";
 
@@ -31,6 +33,8 @@ export interface TickSummary {
   jevCapped: boolean;
   provider: string;
   notes: string[];
+  /** set when this caller lost the single-flight claim and did nothing */
+  skipped?: boolean;
   error?: string;
 }
 
@@ -60,6 +64,45 @@ function seedBees(cfg: EngineConfig, now: number): BeeAccount[] {
 export async function productionTick(): Promise<TickSummary> {
   const cfg = loadConfig();
   const now = Date.now();
+  try {
+    // Cross-isolate single-flight: on Vercel, overlapping scheduler pings are
+    // served by separate isolates, so an in-process mutex cannot prevent
+    // double fills. Losing claimants skip instead of queueing behind the lock.
+    const until = now + 55_000;
+    if (!(await claimTick(now, until))) {
+      return {
+        ok: true,
+        ts: now,
+        decisions: 0,
+        fills: 0,
+        jevCostUsd: 0,
+        jevCapped: false,
+        provider: "skipped",
+        notes: ["another tick holds the lock"],
+        skipped: true,
+      };
+    }
+    try {
+      return await runTickedBody(cfg, now);
+    } finally {
+      await releaseTick(until).catch(() => {});
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      ts: now,
+      decisions: 0,
+      fills: 0,
+      jevCostUsd: 0,
+      jevCapped: false,
+      provider: "error",
+      notes: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function runTickedBody(cfg: ReturnType<typeof loadConfig>, now: number): Promise<TickSummary> {
   try {
     // DB config first: fail fast on misconfiguration instead of burning a full
     // OKX market pull (and its rate-limit budget) before discovering it.

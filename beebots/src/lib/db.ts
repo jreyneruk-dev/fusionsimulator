@@ -30,10 +30,7 @@ export async function closeDb(): Promise<void> {
   }
 }
 
-const BEE_COLUMNS = `bee_id, name, style, tagline, start_equity_usd, realized_pnl, fees_paid,
-  funding_paid, spread_paid, position_json, retired, paused, day_key,
-  day_start_equity_usd, trades_today, fees_today, last_close_ts,
-  last_funding_ts` as const;
+
 
 export async function upsertBees(bees: BeeAccount[]): Promise<void> {
   const db = getSql();
@@ -64,8 +61,14 @@ export async function upsertBees(bees: BeeAccount[]): Promise<void> {
 
 export async function loadBees(): Promise<BeeAccount[]> {
   const db = getSql();
+  // Column list inlined literally: interpolating it as a tagged-template value
+  // would bind it as a single $1 parameter (`SELECT $1 FROM bees`), which
+  // returns one junk row once the table is non-empty.
   const rows = await db`
-    SELECT ${BEE_COLUMNS}
+    SELECT bee_id, name, style, tagline, start_equity_usd, realized_pnl, fees_paid,
+           funding_paid, spread_paid, position_json, retired, paused, day_key,
+           day_start_equity_usd, trades_today, fees_today, last_close_ts,
+           last_funding_ts
     FROM bees ORDER BY bee_id
   `;
   return rows.map((r: Record<string, unknown>) => ({
@@ -184,6 +187,32 @@ export async function pruneOldRows(days: number): Promise<void> {
 }
 
 
+
+/**
+ * Try to claim the tick guard. True = this caller owns the tick. Atomic single
+ * statement: the row is created on first claim and re-claimed only once its
+ * previous claim has expired. Pool-agnostic (works under pgbouncer transaction
+ * mode, where session-level advisory locks do not) and self-healing — a crashed
+ * tick's claim expires instead of deadlocking the engine. The owner releases
+ * via releaseTick on completion; expiry only covers crashes.
+ */
+export async function claimTick(now: number, until: number): Promise<boolean> {
+  const db = getSql();
+  const rows = await db`
+    INSERT INTO tick_state (key, locked_until) VALUES ('tick', ${until})
+    ON CONFLICT (key) DO UPDATE
+      SET locked_until = ${until}
+      WHERE tick_state.locked_until < ${now}
+    RETURNING locked_until
+  `;
+  return rows.length > 0;
+}
+
+/** Release a claim this caller owns (owner-checked by its exact expiry value). */
+export async function releaseTick(until: number): Promise<void> {
+  const db = getSql();
+  await db`UPDATE tick_state SET locked_until = 0 WHERE key = 'tick' AND locked_until = ${until}`;
+}
 
 export async function lastDecisionTs(): Promise<number | null> {
   const db = getSql();
