@@ -11,7 +11,7 @@
 
 const BASE = process.env.OKX_API_BASE || "https://eea.okx.com";
 
-async function get(path: string, params: Record<string, string | number | undefined>): Promise<unknown[]> {
+async function get(path: string, params: Record<string, string | number | undefined>, attempt = 0): Promise<unknown[]> {
   const url = new URL(path, BASE);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined) url.searchParams.set(k, String(v));
@@ -21,6 +21,13 @@ async function get(path: string, params: Record<string, string | number | undefi
     signal: AbortSignal.timeout(8000),
     cache: "no-store",
   });
+  // Observed 429 bursts on history-candles during playtest bursts; one
+  // backoff-and-retry recovers the page (a lost history page caps the 4h
+  // series below the 361 bars the trend ensemble needs).
+  if (res.status === 429 && attempt < 1) {
+    await new Promise((r) => setTimeout(r, 600));
+    return get(path, params, attempt + 1);
+  }
   if (!res.ok) throw new Error(`OKX ${path} HTTP ${res.status}`);
   const body = (await res.json()) as { code: string; data: unknown[] };
   if (body.code !== "0") throw new Error(`OKX ${path} code ${body.code}`);

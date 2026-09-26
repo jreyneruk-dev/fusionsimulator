@@ -63,8 +63,10 @@ export async function productionTick(): Promise<TickSummary> {
   const cfg = loadConfig();
   const now = Date.now();
   try {
-    const market = await getMarket();
+    // DB config first: fail fast on misconfiguration instead of burning a full
+    // OKX market pull (and its rate-limit budget) before discovering it.
     const bees = await seedIfEmpty(await loadBees(), cfg);
+    const market = await getMarket();
     const used = await jevUsedTodayUsd(now);
     const out = await runTick({ bees, market, cfg, jevUsedTodayUsd: used, now });
 
