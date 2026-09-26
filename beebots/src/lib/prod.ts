@@ -139,18 +139,34 @@ export async function buildState(): Promise<StatePayload> {
     recentFills(20),
     jevUsedTodayUsd(Date.now()),
   ]);
-  // Held positions need a mark price even between ticks; without fresh market
-  // data we still show the last persisted state.
+  // Held positions are re-marked from live tickers so unrealised P&L moves
+  // between ticks ("held positions move every tick"). If the live fetch fails,
+  // the last persisted marks are shown instead — visible, not silent.
+  let live: MarketData | null = null;
+  try {
+    live = await getMarket();
+  } catch (err) {
+    console.warn(`[state] live re-mark unavailable (${err instanceof Error ? err.message : String(err)}) — showing last persisted marks`);
+  }
+  const held: MarketData = { ts: Date.now(), byInst: live?.byInst ?? {} };
+
   const now = Date.now();
   const beeViews = bees.map((b: BeeAccount) => {
-    const caps = capsFor(b, cfg, equityOf(b, { ts: now, byInst: {} }), now);
+    const equityNow = equityOf(b, held);
+    const caps = capsFor(b, cfg, equityNow, now);
+    const mark = b.position ? (held.byInst[b.position.instId]?.last ?? b.position.entryPrice) : 0;
+    const snap = b.position ? held.byInst[b.position.instId] : undefined;
+    const unrealised =
+      b.position && snap
+        ? ((snap.last - b.position.entryPrice) / b.position.entryPrice) * b.position.notionalUsd * (b.position.side === "long" ? 1 : -1)
+        : 0;
     return {
       beeId: b.beeId,
       name: b.name,
       style: b.style,
       tagline: b.tagline,
-      equity: equityOf(b, { ts: now, byInst: {} }),
-      pnlPct: ((equityOf(b, { ts: now, byInst: {} }) - b.startEquityUsd) / b.startEquityUsd) * 100,
+      equity: equityNow,
+      pnlPct: ((equityNow - b.startEquityUsd) / b.startEquityUsd) * 100,
       dayPnlPct: caps.dayPnlPct,
       benched: caps.benched,
       retired: caps.retired,
@@ -163,8 +179,8 @@ export async function buildState(): Promise<StatePayload> {
             side: b.position.side,
             notionalUsd: b.position.notionalUsd,
             entryPrice: b.position.entryPrice,
-            mark: b.position.entryPrice, // refreshed on the next tick; unrealised shows 0 between ticks
-            unrealised: 0,
+            mark,
+            unrealised,
           }
         : null,
     };
