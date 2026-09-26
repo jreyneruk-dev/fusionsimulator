@@ -107,17 +107,6 @@ export function atr(bars: { h: number; l: number; c: number }[], period = 14): n
   return value;
 }
 
-/** %B position of the last close within a Donchian channel (0..100). */
-export function donchianPct(bars: { h: number; l: number; c: number }[], period = 20): number | null {
-  if (bars.length < period) return null;
-  const slice = bars.slice(-period);
-  const hi = Math.max(...slice.map((b) => b.h));
-  const lo = Math.min(...slice.map((b) => b.l));
-  const last = bars[bars.length - 1].c;
-  if (hi === lo) return 50;
-  return ((last - lo) / (hi - lo)) * 100;
-}
-
 /** Z-score of the last value against a series. */
 export function zScore(series: number[]): number | null {
   if (series.length < 8) return null;
