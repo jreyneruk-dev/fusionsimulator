@@ -24,6 +24,16 @@ export interface StyleRisk {
   maxFlatMinutes: number;
 }
 
+export type JevProviderKind = "ai-gateway" | "openai-compat" | "none";
+
+export interface JevProvider {
+  kind: JevProviderKind;
+  baseUrl: string;
+  /** Memory-only; never logged, never sent anywhere but the provider. */
+  apiKey: string | null;
+  model: string;
+}
+
 export interface EngineConfig {
   tickSeconds: number;
   startEquityUsd: number;
@@ -33,14 +43,31 @@ export interface EngineConfig {
   retireAtPct: number;
   min24hVolUsd: number;
   jevDailyUsdCap: number;
-  jevModel: string;
   jevTimeoutMs: number;
+  /** Resolved provider: this is the only place environment becomes policy. */
+  jevProvider: JevProvider;
+  /** Base symbols excluded from the tradable universe (crypto-only rule). */
+  nonCryptoBlocklist: Set<string>;
   breakout: StyleRisk & { universe: string[] };
   trend: StyleRisk & { universe: string[]; minOpenProb: number; minConvictionIdx: number; minSizeUsd: number };
   momentum: StyleRisk & { candidates: number; sizeFracLowConviction: number; commitHours: number };
 }
 
+const GATEWAY_BASE = "https://ai-gateway.vercel.sh/v1";
+
+function resolveJevProvider(env: NodeJS.ProcessEnv, fallbackModel: string): JevProvider {
+  const gw = env.AI_GATEWAY_API_KEY;
+  if (gw) return { kind: "ai-gateway", baseUrl: GATEWAY_BASE, apiKey: gw, model: fallbackModel };
+  const base = env.OPENAI_COMPAT_BASE_URL;
+  const key = env.OPENAI_COMPAT_API_KEY;
+  if (base && key) {
+    return { kind: "openai-compat", baseUrl: base.replace(/\/$/, ""), apiKey: key, model: env.OPENAI_COMPAT_MODEL || fallbackModel };
+  }
+  return { kind: "none", baseUrl: "", apiKey: null, model: fallbackModel };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
+  const jevModel = env.JEV_MODEL || "typesafe-ai/jev";
   return {
     tickSeconds: num(env.TICK_SECONDS, 60),
     startEquityUsd: num(env.BEE_START_EQUITY_USD, 333),
@@ -50,8 +77,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
     retireAtPct: num(env.BEE_RETIRE_AT_PCT, 40),
     min24hVolUsd: num(env.MIN_24H_VOL_USD, 1_000_000),
     jevDailyUsdCap: num(env.JEV_DAILY_USD_CAP, 0.2),
-    jevModel: env.JEV_MODEL || "typesafe-ai/jev",
     jevTimeoutMs: num(env.JEV_TIMEOUT_MS, 2500),
+    jevProvider: resolveJevProvider(env, jevModel),
+    nonCryptoBlocklist: new Set(
+      (env.NON_CRYPTO_BLOCKLIST || "NVDA,OPENAI,ANTHROPIC,XAU,CL,TSLA,META,GOOGL,AMZN,SPY")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean),
+    ),
     breakout: {
       universe: (env.BREAKOUT_UNIVERSE || "BTC,ETH,SOL,HYPE").split(",").map((s) => s.trim().toUpperCase()),
       maxTradesPerDay: num(env.BIZZY_MAX_TRADES_PER_DAY, 1),

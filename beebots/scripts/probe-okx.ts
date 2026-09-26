@@ -1,8 +1,9 @@
 /** Live check of the OKX public client: no keys, chronological contract. */
 import "./lib-env.ts";
+import { loadConfig } from "../src/lib/config.ts";
 import { tradableUniverse, fullRefresh } from "../src/lib/okx/aggregator.ts";
 
-const coins = await tradableUniverse(1_000_000, 12);
+const coins = await tradableUniverse(loadConfig(), 12);
 console.log(`OKX EEA public API reachable. Top ${coins.length} liquid USDT perps:`);
 console.log(coins.join(", "));
 

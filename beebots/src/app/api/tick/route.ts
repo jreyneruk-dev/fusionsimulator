@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { productionTick } from "@/lib/prod";
+import { productionTick } from "@/lib/prod/tick";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;

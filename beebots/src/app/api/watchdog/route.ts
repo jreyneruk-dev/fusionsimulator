@@ -5,7 +5,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { productionTick } from "@/lib/prod";
+import { productionTick } from "@/lib/prod/tick";
 import { lastDecisionTs } from "@/lib/db";
 
 export const dynamic = "force-dynamic";

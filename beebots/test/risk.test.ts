@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyRisk, capsFor, dayKeyOf, equityOf, TAKER_FEE_RATE, ROUND_TRIP_FEE_RATE } from "@/lib/risk";
+import { applyRisk, capsFor, dayKeyOf, equityOf } from "@/lib/risk";
+import { TAKER_FEE_RATE, ROUND_TRIP_FEE_RATE } from "@/lib/ledger";
 import { bee, cfg, market, menuOf, snapshot } from "./helpers";
 import { fakeVerdict } from "@/lib/jev";
 import type { JevVerdict } from "@/lib/types";

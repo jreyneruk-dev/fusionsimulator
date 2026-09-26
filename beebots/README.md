@@ -33,6 +33,33 @@ Shared risk layer (all ported from his docs, enforced in code): max 2× leverage
 notional per bee, 8% daily loss stop, retirement at −60%, per-style spread gates,
 trade caps, fee budgets, cooldowns, and a hard daily Jev spend cap.
 
+## Structure (build with it, not against it)
+
+Dependencies flow one way: `okx/` and `jev.ts` are adapters ← pure logic ← `prod/` wiring ← routes.
+
+| Module | Owns |
+|---|---|
+| `src/lib/config.ts` | **The only env reader.** All policy: risk knobs, Jev provider resolution, crypto blocklist |
+| `src/lib/indicators.ts` | Pure math on chronological series |
+| `src/lib/okx/client.ts` | The single OKX-shape boundary (orientation, parsing, rate limits) |
+| `src/lib/okx/aggregator.ts` | Per-coin snapshots from client data (no policy, no env) |
+| `src/lib/strategies/` | Style menus, candidate ranking (pure) |
+| `src/lib/stops.ts` | Per-style exit rules from the strategy docs (pure) |
+| `src/lib/risk.ts` | Veto/shrink/force + Z2 funding veto (pure; imports ledger math) |
+| `src/lib/ledger.ts` | **All money math**: fees, spread, funding, PnL, equity |
+| `src/lib/jev.ts` | Jev client + prompt state; the real `EngineDeps.ask` adapter |
+| `src/lib/engine.ts` | Pure tick; `deps.ask` is required — no hidden config path |
+| `src/lib/db.ts` | Postgres I/O only (no content imports) |
+| `src/lib/prod/market.ts` | Market cache ownership + TTL (one per process) |
+| `src/lib/prod/host.ts` | Process singletons: shared market source + real deps |
+| `src/lib/prod/tick.ts` | The write path: seeding, record-then-act, tick summary |
+| `src/lib/prod/views.ts` | The read model: `StatePayload`, live re-marking |
+| `src/content/bees.ts` | Bee roster + dashboard copy (imported by wiring/UI, never by db) |
+
+State ownership: bee/account state lives in Postgres (one row per bee); the market
+indicator cache lives in `prod/market.ts` (one per process, via `host.ts`); nothing else
+holds mutable state. New rules go in `stops.ts`/`risk.ts`; new display data in `views.ts`.
+
 ## Deploy
 
 1. **Supabase**: create a free project → copy the **pooled** connection string (port 6543).

@@ -2,43 +2,63 @@
  * Jev (TypeSafe AI) client. One batched chat call covers all three bees:
  * state in, one action per bee out, with probabilities. Output tokens are free
  * on Jev ($0.042 / 1M input tokens); cost is metered for the daily cap.
- *
- * Providers:
- *  - Vercel AI Gateway (default): https://ai-gateway.vercel.sh/v1, model
- *    "typesafe-ai/jev". On Vercel the key is injected as AI_GATEWAY_API_KEY.
- *  - Any OpenAI-compatible endpoint (OpenRouter hosts typesafe/jev-1.13).
- * If no provider is configured, the engine runs with null verdicts: code rides
- * all positions and nothing opens — the loop stays verifiable at zero cost.
+ * The provider (AI Gateway / OpenAI-compatible / none) is resolved in
+ * config.ts; this module only consumes cfg and holds no environment policy.
  */
 
-import type { JevVerdict, MarketData, MoveMenu } from "@/lib/types";
+import type { BeeAccount, JevVerdict, MarketData, MoveMenu } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
-import { beeState } from "@/lib/strategies";
-import type { BeeAccount } from "@/lib/types";
+import type { EngineDeps } from "@/lib/engine";
 
-const GATEWAY_BASE = "https://ai-gateway.vercel.sh/v1";
 const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1_000_000;
-
-export type JevProviderKind = "ai-gateway" | "openai-compat" | "fake" | "none";
-
-export function resolveProvider(cfg: EngineConfig): { kind: JevProviderKind; base: string; key: string; model: string } {
-  const gw = process.env.AI_GATEWAY_API_KEY;
-  if (gw) return { kind: "ai-gateway", base: GATEWAY_BASE, key: gw, model: cfg.jevModel };
-  const base = process.env.OPENAI_COMPAT_BASE_URL;
-  const key = process.env.OPENAI_COMPAT_API_KEY;
-  if (base && key) return { kind: "openai-compat", base: base.replace(/\/$/, ""), key, model: process.env.OPENAI_COMPAT_MODEL || cfg.jevModel };
-  return { kind: "none", base: "", key: "", model: cfg.jevModel };
-}
-
-export interface JevRequest {
-  bee: BeeAccount;
-  menu: MoveMenu;
-}
 
 interface ChatResponse {
   choices?: { message?: { content?: string } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
+}
+
+/**
+ * The compact numeric state Jev judges, built from data the engine already
+ * holds. Lives here (not in strategies/) because its only consumer is the
+ * prompt: it is presentation for the model, not trading logic.
+ */
+export function beeState(bee: BeeAccount, market: MarketData, menu: MoveMenu): Record<string, unknown> {
+  const p = bee.position;
+  const posSnap = p ? market.byInst[p.instId] : undefined;
+  const atrPx = posSnap?.atrPct ? (posSnap.atrPct / 100) * p!.entryPrice : 0;
+  const pnlUsd = p && posSnap ? (posSnap.last - p.entryPrice) * (p.side === "long" ? 1 : -1) * (p.notionalUsd / Math.max(p.entryPrice, 1e-9)) : 0;
+  const f = (n: number | null | undefined, d = 2) => (n === null || n === undefined || !Number.isFinite(n) ? null : Number(n.toFixed(d)));
+  return {
+    bee: { style: bee.style, startEquity: f(bee.startEquityUsd), realizedPnl: f(bee.realizedPnl), feesToday: f(bee.feesToday), tradesToday: bee.tradesToday },
+    position: p
+      ? { instId: p.instId, side: p.side, notional: f(p.notionalUsd), entry: p.entryPrice, mark: posSnap?.last ?? null, pnlUsd: f(pnlUsd), pnlR: atrPx ? f(pnlUsd / atrPx, 2) : null }
+      : null,
+    coins: Object.values(market.byInst)
+      .filter((s) => menu.options.some((o) => o.instId === s.instId) || (p && s.instId === p.instId))
+      .slice(0, 12)
+      .map((s) => ({
+        coin: s.instId.replace("-USDT-SWAP", ""),
+        last: s.last,
+        spreadBps: f(s.spreadBps, 1),
+        r1h: s.r1 === null ? null : f(s.r1 * 100, 2),
+        r24h: s.r24 === null ? null : f(s.r24 * 100, 2),
+        r7d: s.r7d === null ? null : f(s.r7d * 100, 2),
+        rsi: s.rsi === null ? null : f(s.rsi, 1),
+        pctB: s.pctB === null ? null : f(s.pctB, 3),
+        atrPct: s.atrPct === null ? null : f(s.atrPct, 2),
+        ensemble: s.ensemble,
+        funding: s.funding === null ? null : f(s.funding * 100, 4),
+        fundingZ: s.fundingZ === null ? null : f(s.fundingZ, 2),
+        oi1h: s.oiChange1h === null ? null : f(s.oiChange1h * 100, 2),
+        volZ: s.volZ === null ? null : f(s.volZ, 2),
+      })),
+  };
+}
+
+export interface JevRequest {
+  bee: BeeAccount;
+  menu: MoveMenu;
 }
 
 function buildPrompt(batch: JevRequest[], market: MarketData) {
@@ -59,7 +79,7 @@ function buildPrompt(batch: JevRequest[], market: MarketData) {
   return { system, user: JSON.stringify(user) };
 }
 
-function parseVerdicts(raw: string, batch: JevRequest[], provider: JevProviderKind, inputTokens: number, latencyMs: number, cfg: EngineConfig): JevVerdict[] {
+function parseVerdicts(raw: string, batch: JevRequest[], provider: EngineConfig["jevProvider"]["kind"], inputTokens: number, latencyMs: number): JevVerdict[] {
   const parsed = JSON.parse(raw) as { decisions?: { beeId?: string; action?: string; probabilities?: Record<string, number>; conviction?: string }[] };
   const list = Array.isArray(parsed.decisions) ? parsed.decisions : [];
   return batch.map(({ bee, menu }) => {
@@ -74,22 +94,26 @@ function parseVerdicts(raw: string, batch: JevRequest[], provider: JevProviderKi
       convictionScaleLabel: cIdx >= 0 ? scale[cIdx] : scale[0],
       provider,
       inputTokens,
-      costUsd: provider === "fake" ? 0 : inputTokens * JEV_USD_PER_INPUT_TOKEN,
+      costUsd: inputTokens * JEV_USD_PER_INPUT_TOKEN,
       latencyMs,
     } as JevVerdict;
   });
 }
 
-/** One batched call for all bees. Throws on provider failure; callers fall back to null verdicts. */
-export async function askJev(batch: JevRequest[], market: MarketData, cfg: EngineConfig): Promise<JevVerdict[]> {
+/**
+ * The engine's real Jev adapter (wired as EngineDeps.ask by the host).
+ * One batched call for all bees. Throws on provider failure; the engine falls
+ * back to null verdicts (code rides).
+ */
+export const askJev: EngineDeps["ask"] = async (batch, market, cfg) => {
   if (batch.length === 0) return [];
-  const provider = resolveProvider(cfg);
+  const provider = cfg.jevProvider;
   if (provider.kind === "none") return batch.map(({ bee, menu }) => fakeVerdict(bee.beeId, menu, "none"));
   const { system, user } = buildPrompt(batch, market);
   const started = Date.now();
-  const res = await fetch(`${provider.base}/chat/completions`, {
+  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${provider.key}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${provider.apiKey}` },
     body: JSON.stringify({
       model: provider.model,
       messages: [
@@ -108,11 +132,11 @@ export async function askJev(batch: JevRequest[], market: MarketData, cfg: Engin
   if (body.error) throw new Error(`Jev provider error: ${body.error.message}`);
   const text = body.choices?.[0]?.message?.content ?? "";
   const inputTokens = body.usage?.prompt_tokens ?? Math.ceil(user.length / 4);
-  return parseVerdicts(text, batch, provider.kind, inputTokens, latencyMs, cfg);
-}
+  return parseVerdicts(text, batch, provider.kind, inputTokens, latencyMs);
+};
 
-/** Deterministic fake used in tests and keyless runs (cost 0, provider "fake"/"none"). */
-export function fakeVerdict(beeId: string, menu: MoveMenu, provider: JevProviderKind = "fake"): JevVerdict {
+/** Deterministic fake used in tests and keyless runs (cost 0; records "fake" or "none"). */
+export function fakeVerdict(beeId: string, menu: MoveMenu, provider: "fake" | "none" = "fake"): JevVerdict {
   const preferred =
     menu.options.find((o) => o.kind === "add") ??
     menu.options.find((o) => o.kind === "open" || o.kind === "switch") ??
