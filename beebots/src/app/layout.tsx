@@ -11,9 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <div className="bg-hive px-4 py-2 text-center text-sm font-semibold text-comb">
-          PAPER TRADING ONLY — real prices, simulated money. {HIVE.disclaimer}
-        </div>
+        <div className="bg-hive px-4 py-2 text-center text-sm font-semibold text-comb">{HIVE.disclaimer}</div>
         {children}
         <footer className="wrap pb-10 pt-8 text-center text-xs text-wax">
           Port of{" "}

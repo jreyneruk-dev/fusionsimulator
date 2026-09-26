@@ -42,5 +42,5 @@ export const HIVE = {
   title: "The Hive",
   subtitle: "Three AI bees, one decision model, real OKX prices, paper money.",
   disclaimer:
-    "Paper trading only — no real money moves here. Not financial advice; the real thing can lose everything you put in.",
+    "PAPER TRADING ONLY — real prices, simulated money, nothing real moves. Not financial advice.",
 };

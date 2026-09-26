@@ -114,16 +114,28 @@ export async function fullRefresh(coins: string[], prev?: MarketData): Promise<M
   const byInst: Record<string, MarketSnapshot> = {};
   const targets = [...universe].filter((instId) => byTicker.has(instId));
 
-  const perCoin = await Promise.all(
-    targets.map(async (instId) => {
-      try {
-        return [instId, await refreshCoin(instId)] as const;
-      } catch (err) {
-        console.warn(`[okx] ${instId}: refresh failed (${msg(err)}) — snapshot empty for this tick`);
-        return [instId, {}] as const;
+  // Concurrency is deliberately capped: a 30-coin cold start otherwise fires
+  // ~180 simultaneous OKX requests, which a playtest burst showed 429-throttling
+  // on (BCH-USDT-SWAP).
+  async function pooledRefresh(limit: number): Promise<(readonly [string, Partial<MarketSnapshot>])[]> {
+    const out: (readonly [string, Partial<MarketSnapshot>])[] = [];
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(limit, targets.length) }, async () => {
+      while (cursor < targets.length) {
+        const instId = targets[cursor++];
+        try {
+          out.push([instId, await refreshCoin(instId)] as const);
+        } catch (err) {
+          console.warn(`[okx] ${instId}: refresh failed (${msg(err)}) — snapshot empty for this tick`);
+          out.push([instId, {}] as const);
+        }
+        await new Promise((r) => setTimeout(r, 25));
       }
-    }),
-  );
+    });
+    await Promise.all(workers);
+    return out;
+  }
+  const perCoin = await pooledRefresh(6);
   const perCoinMap = new Map(perCoin);
 
   // 1h OI change needs the previous OI reading; persisted by the caller.
