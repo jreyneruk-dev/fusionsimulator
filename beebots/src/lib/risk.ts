@@ -10,10 +10,9 @@
 
 import type { BeeAccount, FinalAction, JevVerdict, MarketData, MoveKind, MoveMenu, MoveOption, Side } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
+import { equityOf, ROUND_TRIP_FEE_RATE } from "@/lib/ledger";
 
-export const TAKER_FEE_RATE = 0.0005; // OKX X-Perps taker 0.05% (docs/COSTS.md)
-/** Round-trip fee estimate used against the daily fee budget. */
-export const ROUND_TRIP_FEE_RATE = TAKER_FEE_RATE * 2;
+export { equityOf }; // re-exported for existing call sites; ledger owns the math
 
 /**
  * Bizzy's Z2 funding filter threshold (BIZZY_BEE.md, "Strategy Z2 (filter):
@@ -65,20 +64,6 @@ export function capsFor(bee: BeeAccount, cfg: EngineConfig, equityNow: number, n
   const benched = tradesLeft <= 0 || feeBudgetLeft <= 0;
   const inCooldown = bee.lastCloseTs !== null && now - bee.lastCloseTs < styleCfg.cooldownMinutes * 60_000;
   return { tradesLeft, feeBudgetLeft, dayPnlPct, lossStopTripped, retired, benched, inCooldown };
-}
-
-/** Current equity: start + realized + unrealised, minus all paid costs. */
-export function equityOf(bee: BeeAccount, market: MarketData): number {
-  const p = bee.position;
-  let unrealised = 0;
-  if (p) {
-    const s = market.byInst[p.instId];
-    if (s) {
-      const dir = p.side === "long" ? 1 : -1;
-      unrealised = ((s.last - p.entryPrice) / p.entryPrice) * p.notionalUsd * dir;
-    }
-  }
-  return bee.startEquityUsd + bee.realizedPnl + unrealised - bee.feesPaid - bee.spreadPaid - bee.fundingPaid;
 }
 
 function holdFor(bee: BeeAccount, reason: string): FinalAction {

@@ -1,6 +1,6 @@
 /** Run one engine tick locally against live OKX data and the configured DB. */
 import "./lib-env.ts";
-import { productionTick } from "../src/lib/prod.ts";
+import { productionTick } from "../src/lib/prod/tick.ts";
 
 const summary = await productionTick();
 console.log(JSON.stringify(summary, null, 2));

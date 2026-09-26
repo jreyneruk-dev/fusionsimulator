@@ -5,7 +5,7 @@
 
 import postgres from "postgres";
 import type { BeeAccount, Decision, Fill, MarketData } from "@/lib/types";
-import { equityOf } from "@/lib/risk";
+import { equityOf } from "@/lib/ledger";
 
 let sql: postgres.Sql | null = null;
 
@@ -184,38 +184,6 @@ export async function pruneOldRows(days: number): Promise<void> {
 }
 
 
-
-/** Seed the three bees on first run (idempotent). */
-export async function seedIfEmpty(bees: BeeAccount[], cfg: import("@/lib/config").EngineConfig): Promise<BeeAccount[]> {
-  if (bees.length) return bees;
-  const { BEE_SEEDS } = await import("@/content/bees");
-  const { dayKeyOf } = await import("@/lib/risk");
-  const now = Date.now();
-  const seeds: BeeAccount[] = BEE_SEEDS.map((s) => ({
-    beeId: s.beeId,
-    name: s.name,
-    style: s.style,
-    tagline: s.tagline,
-    coins: s.coins,
-    startEquityUsd: cfg.startEquityUsd,
-    realizedPnl: 0,
-    feesPaid: 0,
-    fundingPaid: 0,
-    spreadPaid: 0,
-    position: null,
-    retired: false,
-    paused: false,
-    dayKey: dayKeyOf(now),
-    dayStartEquityUsd: cfg.startEquityUsd,
-    tradesToday: 0,
-    feesToday: 0,
-    flatSinceTs: now,
-    lastCloseTs: null,
-    lastFundingTs: null,
-  }));
-  await upsertBees(seeds);
-  return seeds;
-}
 
 export async function lastDecisionTs(): Promise<number | null> {
   const db = getSql();

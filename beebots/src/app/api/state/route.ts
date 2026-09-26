@@ -1,7 +1,7 @@
 /** GET /api/state — public, read-only dashboard payload. No secrets. */
 
 import { NextResponse } from "next/server";
-import { buildState } from "@/lib/prod";
+import { buildState } from "@/lib/prod/views";
 
 export const dynamic = "force-dynamic";
 

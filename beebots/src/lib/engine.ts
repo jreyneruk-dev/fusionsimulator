@@ -7,24 +7,19 @@
 
 import type { BeeAccount, Decision, FinalAction, Fill, JevVerdict, MarketData, MoveMenu } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
-import { buildMenu, CONVICTION_SCALES } from "@/lib/strategies";
-import { applyRisk, capsFor, dayKeyOf, equityOf } from "@/lib/risk";
+import { buildMenu } from "@/lib/strategies";
+import { applyRisk, capsFor, dayKeyOf } from "@/lib/risk";
 import { evaluateStops } from "@/lib/stops";
-import { askJev, resolveProvider } from "@/lib/jev";
+import { equityOf } from "@/lib/ledger";
 import { addToPosition, closePosition, fundingDueUsd, openPosition } from "@/lib/ledger";
 
+/**
+ * The one seam between the pure tick and the world: the decision model.
+ * The host (prod/tick.ts) wires the real client; tests wire a fake. There is
+ * deliberately no default — a tick must say where its decisions come from.
+ */
 export interface EngineDeps {
-  ask: (batch: { bee: BeeAccount; menu: MoveMenu }[], market: MarketData) => Promise<JevVerdict[]>;
-}
-
-export const defaultDeps: EngineDeps = {
-  ask: (batch, market) => askJev(batch, market, loadConfigShim()),
-};
-
-// Avoids a circular import at module init; config is cheap to build.
-import { loadConfig } from "@/lib/config";
-function loadConfigShim() {
-  return loadConfig();
+  ask: (batch: { bee: BeeAccount; menu: MoveMenu }[], market: MarketData, cfg: EngineConfig) => Promise<JevVerdict[]>;
 }
 
 export interface TickInput {
@@ -34,7 +29,7 @@ export interface TickInput {
   /** Jev spend already used today (USD), across all bees */
   jevUsedTodayUsd: number;
   now?: number;
-  deps?: EngineDeps;
+  deps: EngineDeps;
 }
 
 export interface TickOutput {
@@ -54,9 +49,8 @@ function rolloverDay(bee: BeeAccount, equityNow: number, now: number): BeeAccoun
 }
 
 export async function runTick(input: TickInput): Promise<TickOutput> {
-  const { bees, market, cfg } = input;
+  const { bees, market, cfg, deps } = input;
   const now = input.now ?? Date.now();
-  const deps = input.deps ?? defaultDeps;
   const notes: string[] = [];
 
   // 1. Daily counters roll over at 00:00 UTC; funding accrues at each boundary.
@@ -128,7 +122,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
 
   // 4. Build menus for active bees; Jev outage -> null verdicts (code rides).
   const batch = active.map((bee) => ({ bee, menu: buildMenu(bee, market, cfg) }));
-  const provider = resolveProvider(cfg);
+  const providerKind = cfg.jevProvider.kind;
   let verdicts: (JevVerdict | null)[] = active.map(() => null);
   let jevCost = 0;
   let jevCapped = false;
@@ -139,7 +133,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
       notes.push(`Jev daily cap hit ($${cfg.jevDailyUsdCap.toFixed(2)}) — all bees hold until 00:00 UTC`);
     } else {
       try {
-        const vs = await deps.ask(batch, market);
+        const vs = await deps.ask(batch, market, cfg);
         verdicts = vs;
         jevCost = vs.reduce((a, v) => a + v.costUsd, 0);
       } catch (err) {
@@ -215,12 +209,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
     bees: rolled.map((b) => finalBees.get(b.beeId) ?? b),
     jevCostUsd: jevCost,
     jevCapped,
-    provider: provider.kind,
+    provider: providerKind,
     notes,
   };
-}
-
-/** Conviction scale lookup exposed for the dashboard. */
-export function convictionScaleFor(style: string): string[] {
-  return CONVICTION_SCALES[style] ?? [];
 }

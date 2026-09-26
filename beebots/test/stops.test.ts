@@ -170,7 +170,7 @@ describe("engine wiring: stops run for benched bees and route through the ledger
           asked += batch.length;
           return batch.map(({ bee: bb, menu }) => fakeVerdict(bb.beeId, menu));
         },
-      } satisfies EngineDeps,
+      },
     });
     expect(asked).toBe(0); // benched: Jev never asked, but the stop still fired
     expect(out.fills).toHaveLength(1);

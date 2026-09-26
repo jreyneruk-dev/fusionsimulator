@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import BeePortrait from "@/components/BeePortrait";
-import type { StatePayload } from "@/lib/prod";
+import type { StatePayload } from "@/lib/prod/views";
 
 const usd = (n: number, digits = 2) =>
   `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;

@@ -7,7 +7,11 @@
  */
 
 import type { BeeAccount, Fill, MarketData, Position, Side } from "@/lib/types";
-import { TAKER_FEE_RATE } from "@/lib/risk";
+
+/** OKX X-Perps taker fee, 0.05% per leg (his docs/COSTS.md). Ledger owns fee policy. */
+export const TAKER_FEE_RATE = 0.0005;
+/** Round-trip fee estimate used against the daily fee budget. */
+export const ROUND_TRIP_FEE_RATE = TAKER_FEE_RATE * 2;
 
 export function spreadCostUsd(notional: number, spreadBps: number): number {
   return (notional * spreadBps) / 10_000;

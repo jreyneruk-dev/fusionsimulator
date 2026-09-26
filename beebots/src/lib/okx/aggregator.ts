@@ -8,6 +8,7 @@
  */
 
 import type { MarketData, MarketSnapshot } from "@/lib/types";
+import type { EngineConfig } from "@/lib/config";
 import { rsi, bollinger, atr, donchianPct, ensembleScore, returnOverBars, zScore } from "@/lib/indicators";
 import {
   fetchTickers,
@@ -18,13 +19,6 @@ import {
   tickerVolumeUsd,
   type FundingRow,
 } from "@/lib/okx/client";
-
-/** Base symbols excluded from the crypto-only universe (extend via NON_CRYPTO_BLOCKLIST). */
-const DEFAULT_BLOCKLIST = "NVDA,OPENAI,ANTHROPIC,XAU,CL,TSLA,META,GOOGL,AMZN,SPY";
-
-export const NON_CRYPTO = new Set(
-  (process.env.NON_CRYPTO_BLOCKLIST || DEFAULT_BLOCKLIST).split(",").map((s) => s.trim().toUpperCase()),
-);
 
 function msg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -53,7 +47,10 @@ function from15m(bars: { h: number; l: number; c: number; v: number }[]) {
  * Per-coin indicator block. Optional per-fetch failures degrade to nulls with
  * a warning (deliberate, visible) — they never silently null a whole snapshot.
  */
-export async function refreshCoin(instId: string, log: (line: string) => void = (l) => console.warn(l)): Promise<Partial<MarketSnapshot>> {
+export async function refreshCoin(
+  instId: string,
+  log: (line: string) => void = (l) => console.warn(l),
+): Promise<Partial<MarketSnapshot>> {
   const [bars15m, bars4h, daily, funding, fundingRows, oi] = await Promise.all([
     fetchCandleSeries(instId, "15m", 300),
     fetchCandleSeries(instId, "4H", 400),
@@ -204,16 +201,15 @@ export async function tickerPatch(prev: MarketData): Promise<MarketData> {
 
 /**
  * Tradable universe for this tick, straight from public tickers: liquid
- * crypto USDT perps (stock/commodity tokens excluded), ranked by 24h volume.
- * This is the coin list indicators get fetched for; the per-style spread
- * gates then apply at menu time.
+ * crypto USDT perps ranked by 24h volume. The blocklist policy comes from
+ * cfg; per-style spread gates apply later, at menu time.
  */
-export async function tradableUniverse(minVol: number, limit: number): Promise<string[]> {
+export async function tradableUniverse(cfg: EngineConfig, limit: number): Promise<string[]> {
   const tickers = await fetchTickers();
   return tickers
     .filter((t) => t.instId.endsWith("-USDT-SWAP"))
-    .filter((t) => !NON_CRYPTO.has(t.instId.split("-")[0].toUpperCase()))
-    .filter((t) => tickerVolumeUsd(t) >= minVol)
+    .filter((t) => !cfg.nonCryptoBlocklist.has(t.instId.split("-")[0].toUpperCase()))
+    .filter((t) => tickerVolumeUsd(t) >= cfg.min24hVolUsd)
     .sort((a, b) => tickerVolumeUsd(b) - tickerVolumeUsd(a))
     .slice(0, limit)
     .map((t) => t.instId.split("-")[0]);
