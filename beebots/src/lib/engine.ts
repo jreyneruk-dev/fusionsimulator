@@ -9,6 +9,7 @@ import type { BeeAccount, Decision, FinalAction, Fill, JevVerdict, MarketData, M
 import type { EngineConfig } from "@/lib/config";
 import { buildMenu, CONVICTION_SCALES } from "@/lib/strategies";
 import { applyRisk, capsFor, dayKeyOf, equityOf } from "@/lib/risk";
+import { evaluateStops } from "@/lib/stops";
 import { askJev, resolveProvider } from "@/lib/jev";
 import { addToPosition, closePosition, fundingDueUsd, openPosition } from "@/lib/ledger";
 
@@ -72,8 +73,46 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
     return { ...b, fundingPaid: b.fundingPaid + due, lastFundingTs: now };
   });
 
-  // 3. Benched / retired / paused bees never see Jev; code rides their positions.
-  const active = withFunding.filter((b) => {
+  // 3. Code stops run for EVERY held bee — benched, retired and paused included
+  // (DRAMA_RULES §2: only code can close a position while the bee is benched).
+  // Forced closes take the same paper-ledger path as any other fill.
+  const decisions: Decision[] = [];
+  const fills: Fill[] = [];
+  const postStop = new Map<string, BeeAccount>(withFunding.map((b) => [b.beeId, b]));
+  for (const b of withFunding) {
+    if (!b.position) continue;
+    const stop = evaluateStops(b, market, cfg, now);
+    if (stop) {
+      const pos = b.position;
+      const res = closePosition(b, 1, market, now);
+      fills.push(res.fill);
+      postStop.set(res.bee.beeId, res.bee);
+      decisions.push({
+        beeId: b.beeId,
+        ts: now,
+        menu: buildMenu(b, market, cfg),
+        verdict: null,
+        finalAction: `STOP_${stop.reason.toUpperCase()}`,
+        finalInstId: pos.instId,
+        finalSide: pos.side,
+        sizeUsd: res.fill.notionalUsd,
+        vetoed: true,
+        vetoReason: stop.detail,
+      });
+      notes.push(`${b.name}: STOP_${stop.reason.toUpperCase()} — ${stop.detail}`);
+    } else {
+      // Ratchet the trailing-stop anchor for every held bee (stops only tighten).
+      const s = market.byInst[b.position.instId];
+      if (s) {
+        const anchor = b.position.bestPrice ?? b.position.entryPrice;
+        const best = b.position.side === "long" ? Math.max(anchor, s.last) : Math.min(anchor, s.last);
+        postStop.set(b.beeId, { ...b, position: { ...b.position, bestPrice: best } });
+      }
+    }
+  }
+
+  // 4. Benched / retired / paused bees never see Jev; code rides their positions.
+  const active = [...postStop.values()].filter((b) => {
     if (b.paused) return false;
     const caps = capsFor(b, cfg, equityOf(b, market), now);
     if (caps.retired) {
@@ -110,14 +149,13 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
   }
 
   // 5. Risk layer per bee: record the decision, then act.
-  const decisions: Decision[] = [];
-  const fills: Fill[] = [];
-  const finalBees = new Map<string, BeeAccount>(withFunding.map((b) => [b.beeId, b]));
+  const finalBees = new Map<string, BeeAccount>([...postStop.values()].map((b) => [b.beeId, b]));
 
   for (let i = 0; i < active.length; i++) {
     const bee = active[i];
     const menu = batch[i].menu;
     const verdict = verdicts[i] ?? null;
+
     const final: FinalAction = applyRisk(bee, menu, verdict, market, cfg, now);
 
     decisions.push({

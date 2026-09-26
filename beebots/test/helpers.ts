@@ -15,6 +15,7 @@ export function snapshot(over: Partial<MarketSnapshot> = {}): MarketSnapshot {
     rsi: 55,
     pctB: 0.6,
     atrPct: 1.0,
+    atr4hPct: 0.5,
     donchianPct: 70,
     ensemble: 5,
     funding: 0.0001,

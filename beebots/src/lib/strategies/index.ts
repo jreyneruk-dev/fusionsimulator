@@ -9,6 +9,7 @@
 
 import type { BeeAccount, MarketData, MarketSnapshot, MoveMenu, MoveOption } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
+import { FUNDING_Z_BLOCK } from "@/lib/risk";
 
 export const CONVICTION_SCALES: Record<string, string[]> = {
   breakout: ["meh", "decent", "juicy", "screaming"],
@@ -69,6 +70,10 @@ export function breakoutMenu(bee: BeeAccount, market: MarketData, cfg: EngineCon
   });
   if (!bee.position) {
     for (const st of setups.filter((st) => market.byInst[st.instId].last > st.trigger)) {
+      // Z2 funding veto at menu level (BIZZY_BEE.md: only offer valid moves):
+      // a long whose 30-day funding z > 1.5 is not a valid move right now.
+      const fz = market.byInst[st.instId].fundingZ;
+      if (fz !== null && fz > FUNDING_Z_BLOCK) continue;
       options.push({ action: `LONG_${st.instId}`, label: `breakout long ${st.instId}`, kind: "open", instId: st.instId, side: "long", sizeFrac: 1 });
     }
   } else {

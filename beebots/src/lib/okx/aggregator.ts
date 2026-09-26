@@ -78,6 +78,8 @@ export async function refreshCoin(instId: string, log: (line: string) => void = 
 
   // Chronological: the last bars are the present.
   const last15 = bars15m[bars15m.length - 1];
+  const last4h = bars4h[bars4h.length - 1];
+  const atr4h = atr(bars4h);
   const todayOpen = daily.length ? daily[daily.length - 1].o : null;
   const prevRange = daily.length >= 2 ? daily[daily.length - 2].h - daily[daily.length - 2].l : null;
 
@@ -91,6 +93,7 @@ export async function refreshCoin(instId: string, log: (line: string) => void = 
     rsi: m15.rsi,
     pctB: m15.pctB,
     atrPct: m15.atrRaw && last15 ? (m15.atrRaw / last15.c) * 100 : null,
+    atr4hPct: atr4h && last4h ? (atr4h / last4h.c) * 100 : null,
     donchianPct: m15.donchianPct,
     ensemble: ensembleScore(closes4h),
     r24: returnOverBars(bars15m.map((b) => b.c), 96), // 96 x 15m = 24h
@@ -144,6 +147,7 @@ export async function fullRefresh(coins: string[], prev?: MarketData): Promise<M
       rsi: extra.rsi ?? null,
       pctB: extra.pctB ?? null,
       atrPct: extra.atrPct ?? null,
+      atr4hPct: extra.atr4hPct ?? null,
       donchianPct: extra.donchianPct ?? null,
       ensemble: extra.ensemble ?? null,
       funding: extra.funding ?? null,
