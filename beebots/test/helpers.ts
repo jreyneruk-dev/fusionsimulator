@@ -1,7 +1,6 @@
 import type { BeeAccount, MarketData, MarketSnapshot, MoveMenu, Style } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
 import { loadConfig } from "@/lib/config";
-import { dayKeyOf } from "@/lib/risk";
 
 export function snapshot(over: Partial<MarketSnapshot> = {}): MarketSnapshot {
   return {
@@ -47,11 +46,10 @@ export function bee(over: Partial<BeeAccount> & { beeId: string; style: Style })
     position: null,
     retired: false,
     paused: false,
-    dayKey: dayKeyOf(now),
+    dayKey: new Date(now).toISOString().slice(0, 10),
     dayStartEquityUsd: 333,
     tradesToday: 0,
     feesToday: 0,
-    flatSinceTs: now,
     lastCloseTs: null,
     lastFundingTs: null,
     ...over,
@@ -72,5 +70,5 @@ export function menuOf(beeId: string, style: Style, options: MoveMenu["options"]
     trend: ["weak", "fair", "strong", "overwhelming"],
     momentum: ["tipsy", "buzzed", "wasted", "legendary"],
   };
-  return { beeId, style, options, convictionScale: scales[style], forced, forcedReason: forced ? "test forced" : null };
+  return { beeId, style, options, convictionScale: scales[style], forced };
 }

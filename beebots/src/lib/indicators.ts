@@ -127,20 +127,19 @@ export function zScore(series: number[]): number | null {
   return (series[series.length - 1] - mean) / sd;
 }
 
-export const ENSEMBLE_LOOKBACKS = [5, 10, 20, 30, 60, 90, 150, 250, 360] as const;
-
 /**
- * Breezy's ensemble trend score: for each lookback L, the slice is "on" long when
+ * Breezy's ensemble trend score: for each lookback L in [5..360] (BREEZY_BEE.md:
+ * 9 Donchian slices), the slice is "on" long when
  * the close is above the highest close of the previous L bars, "on" short when
  * below the lowest. Score = (# long slices) - (# short slices), from -9 to +9.
  * Designed for 4h bars; the caller supplies the bar series.
  */
 export function ensembleScore(closes: number[]): number | null {
-  if (closes.length < 1 + Math.max(...ENSEMBLE_LOOKBACKS)) return null;
+  if (closes.length < 1 + 360) return null;
   const last = closes[closes.length - 1];
   let long = 0;
   let short = 0;
-  for (const l of ENSEMBLE_LOOKBACKS) {
+  for (const l of [5, 10, 20, 30, 60, 90, 150, 250, 360]) {
     const prev = closes.slice(closes.length - 1 - l, closes.length - 1);
     if (prev.length !== l) continue;
     if (last > Math.max(...prev)) long++;

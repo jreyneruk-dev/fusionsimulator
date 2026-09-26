@@ -19,7 +19,6 @@ export interface BeeAccount {
   name: string;
   style: Style;
   tagline: string;
-  coins: string[] | null; // null = style default universe
   startEquityUsd: number;
   realizedPnl: number;
   feesPaid: number;
@@ -34,16 +33,9 @@ export interface BeeAccount {
   dayStartEquityUsd: number;
   tradesToday: number;
   feesToday: number;
-  flatSinceTs: number | null;
   lastCloseTs: number | null;
   /** Last time funding was accrued for the open position (reset on open) */
   lastFundingTs: number | null;
-}
-
-export interface EquityView {
-  equity: number;
-  unrealised: number;
-  pnlPct: number;
 }
 
 /** Per-coin market snapshot the strategies read (numbers only). */
@@ -60,7 +52,6 @@ export interface MarketSnapshot {
   atrPct: number | null;
   /** ATR(14) on 4h bars, as % of price (trend stop scale) */
   atr4hPct: number | null;
-  donchianPct: number | null;
   ensemble: number | null;
   funding: number | null;
   fundingZ: number | null;
@@ -98,7 +89,6 @@ export interface MoveMenu {
   convictionScale: string[];
   /** code-forced move (never-flat rules), applied when Jev's own choice fails gates */
   forced: MoveOption | null;
-  forcedReason: string | null;
 }
 
 export interface JevVerdict {
@@ -118,7 +108,7 @@ export interface JevVerdict {
 export interface Decision {
   beeId: string;
   ts: number;
-  menu: MoveMenu;
+  style: Style;
   verdict: JevVerdict | null;
   finalAction: string;
   finalInstId: string | null;
@@ -142,10 +132,8 @@ export interface Fill {
 }
 
 /** Why a code stop closed a held position (ported from strategies/*.md). */
-export type StopReason = "breakout_open_stop" | "breakout_day_close" | "trend_atr_trail" | "momentum_atr_trail";
-
 export interface StopCheck {
-  reason: StopReason;
+  reason: "breakout_open_stop" | "breakout_day_close" | "trend_atr_trail" | "momentum_atr_trail";
   detail: string;
 }
 

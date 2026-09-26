@@ -31,7 +31,7 @@ export interface StatePayload {
     paused: boolean;
     tradesToday: number;
     feeBudgetLeft: number;
-    position: { instId: string; side: string; notionalUsd: number; entryPrice: number; mark: number; unrealised: number } | null;
+    position: { instId: string; side: string; notionalUsd: number; entryPrice: number; mark: number } | null;
   }[];
   decisions: Record<string, unknown>[];
   fills: Record<string, unknown>[];
@@ -61,10 +61,6 @@ export async function buildState(cfg: EngineConfig = loadConfig()): Promise<Stat
     const caps = capsFor(b, cfg, equityNow, now);
     const snap = b.position ? held.byInst[b.position.instId] : undefined;
     const mark = b.position ? (snap?.last ?? b.position.entryPrice) : 0;
-    const unrealised =
-      b.position && snap
-        ? ((snap.last - b.position.entryPrice) / b.position.entryPrice) * b.position.notionalUsd * (b.position.side === "long" ? 1 : -1)
-        : 0;
     return {
       beeId: b.beeId,
       name: b.name,
@@ -85,7 +81,6 @@ export async function buildState(cfg: EngineConfig = loadConfig()): Promise<Stat
             notionalUsd: b.position.notionalUsd,
             entryPrice: b.position.entryPrice,
             mark,
-            unrealised,
           }
         : null,
     };

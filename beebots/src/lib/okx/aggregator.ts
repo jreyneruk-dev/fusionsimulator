@@ -9,7 +9,7 @@
 
 import type { MarketData, MarketSnapshot } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
-import { rsi, bollinger, atr, donchianPct, ensembleScore, returnOverBars, zScore } from "@/lib/indicators";
+import { rsi, bollinger, atr, ensembleScore, returnOverBars, zScore } from "@/lib/indicators";
 import {
   fetchTickers,
   fetchCandleSeries,
@@ -37,7 +37,6 @@ function from15m(bars: { h: number; l: number; c: number; v: number }[]) {
     rsi: rsi(closes),
     pctB: bb ? bb.pctB : null,
     atrRaw: atr(bars),
-    donchianPct: donchianPct(bars, 20),
     r1: returnOverBars(closes, 4), // 4 x 15m = 1h
     volZ: hourlyVols.length >= 8 ? zScore(hourlyVols) : null,
   };
@@ -91,7 +90,6 @@ export async function refreshCoin(
     pctB: m15.pctB,
     atrPct: m15.atrRaw && last15 ? (m15.atrRaw / last15.c) * 100 : null,
     atr4hPct: atr4h && last4h ? (atr4h / last4h.c) * 100 : null,
-    donchianPct: m15.donchianPct,
     ensemble: ensembleScore(closes4h),
     r24: returnOverBars(bars15m.map((b) => b.c), 96), // 96 x 15m = 24h
     volZ: m15.volZ,
@@ -157,7 +155,6 @@ export async function fullRefresh(coins: string[], prev?: MarketData): Promise<M
       pctB: extra.pctB ?? null,
       atrPct: extra.atrPct ?? null,
       atr4hPct: extra.atr4hPct ?? null,
-      donchianPct: extra.donchianPct ?? null,
       ensemble: extra.ensemble ?? null,
       funding: extra.funding ?? null,
       fundingZ: extra.fundingZ ?? null,

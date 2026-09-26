@@ -12,8 +12,6 @@ import type { BeeAccount, FinalAction, JevVerdict, MarketData, MoveKind, MoveMen
 import type { EngineConfig } from "@/lib/config";
 import { equityOf, ROUND_TRIP_FEE_RATE } from "@/lib/ledger";
 
-export { equityOf }; // re-exported for existing call sites; ledger owns the math
-
 /**
  * Bizzy's Z2 funding filter threshold (BIZZY_BEE.md, "Strategy Z2 (filter):
  * funding rate as a veto, not a trigger"; BIS WP 1087 "a high crypto carry
@@ -73,6 +71,23 @@ function holdFor(bee: BeeAccount, reason: string): FinalAction {
 function findOption(menu: MoveMenu, action: string): MoveOption | undefined {
   const needle = action.trim().toUpperCase();
   return menu.options.find((o) => o.action.toUpperCase() === needle);
+}
+
+/** Build a test verdict: choices default to the first menu option at top conviction. */
+export function verdict(beeId: string, menu: MoveMenu, over: Partial<JevVerdict> = {}): JevVerdict {
+  const choice = over.choice ?? menu.options[0]?.action ?? "WAIT";
+  return {
+    beeId,
+    choice,
+    probabilities: { [choice]: 0.9 },
+    conviction: menu.convictionScale.length - 1,
+    convictionScaleLabel: menu.convictionScale[menu.convictionScale.length - 1],
+    provider: "fake",
+    inputTokens: 100,
+    costUsd: 0,
+    latencyMs: 1,
+    ...over,
+  };
 }
 
 function convictionIndex(verdict: JevVerdict, menu: MoveMenu): number {

@@ -18,10 +18,6 @@ export interface StyleRisk {
   spreadGateBps: number;
   /** minutes to wait after a close before a new open */
   cooldownMinutes: number;
-  /** stop distance in ATR multiples */
-  stopAtrMult: number;
-  /** max minutes flat before a forced entry (0 = never forced) */
-  maxFlatMinutes: number;
 }
 
 export type JevProviderKind = "ai-gateway" | "openai-compat" | "none";
@@ -35,7 +31,6 @@ export interface JevProvider {
 }
 
 export interface EngineConfig {
-  tickSeconds: number;
   startEquityUsd: number;
   maxLeverage: number;
   maxNotionalUsdPerBee: number;
@@ -49,8 +44,8 @@ export interface EngineConfig {
   /** Base symbols excluded from the tradable universe (crypto-only rule). */
   nonCryptoBlocklist: Set<string>;
   breakout: StyleRisk & { universe: string[] };
-  trend: StyleRisk & { universe: string[]; minOpenProb: number; minConvictionIdx: number; minSizeUsd: number };
-  momentum: StyleRisk & { candidates: number; sizeFracLowConviction: number; commitHours: number };
+  trend: StyleRisk & { universe: string[]; minOpenProb: number; minConvictionIdx: number; minSizeUsd: number; stopAtrMult: number };
+  momentum: StyleRisk & { candidates: number; stopAtrMult: number };
 }
 
 const GATEWAY_BASE = "https://ai-gateway.vercel.sh/v1";
@@ -69,7 +64,6 @@ function resolveJevProvider(env: NodeJS.ProcessEnv, fallbackModel: string): JevP
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
   const jevModel = env.JEV_MODEL || "typesafe-ai/jev";
   return {
-    tickSeconds: num(env.TICK_SECONDS, 60),
     startEquityUsd: num(env.BEE_START_EQUITY_USD, 333),
     maxLeverage: num(env.MAX_LEVERAGE, 2),
     maxNotionalUsdPerBee: num(env.MAX_NOTIONAL_USD_PER_BEE, 700),
@@ -91,8 +85,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
       feeBudgetUsdDay: num(env.BIZZY_FEE_BUDGET_USD_DAY, 1.0),
       spreadGateBps: num(env.BREAKOUT_SPREAD_GATE_BPS, 5),
       cooldownMinutes: num(env.BIZZY_COOLDOWN_MINUTES, 5),
-      stopAtrMult: num(env.BIZZY_STOP_ATR_MULT, 1.5),
-      maxFlatMinutes: 0, // live rules: "she is never forced in"
     },
     trend: {
       universe: (env.TREND_UNIVERSE || "BTC,ETH").split(",").map((s) => s.trim().toUpperCase()),
@@ -101,7 +93,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
       spreadGateBps: num(env.TREND_SPREAD_GATE_BPS, 5),
       cooldownMinutes: num(env.BREEZY_COOLDOWN_MINUTES, 240),
       stopAtrMult: num(env.BREEZY_STOP_ATR_MULT, 2),
-      maxFlatMinutes: 0, // never flat at all: forced minimum position
       minOpenProb: num(env.BREEZY_MIN_OPEN_PROB, 0.7),
       minConvictionIdx: num(env.BREEZY_MIN_CONVICTION_IDX, 2), // "strong" on her 4-step scale
       minSizeUsd: num(env.BREEZY_MIN_SIZE_USD, 10),
@@ -113,9 +104,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EngineConfig {
       spreadGateBps: num(env.MOMENTUM_SPREAD_GATE_BPS, 15),
       cooldownMinutes: num(env.BOOZY_COOLDOWN_MINUTES, 2),
       stopAtrMult: num(env.BOOZY_STOP_ATR_MULT, 3),
-      maxFlatMinutes: 0, // never flat for more than one tick: forced APE
-      sizeFracLowConviction: num(env.BOOZY_SIZE_FRACTION, 0.6),
-      commitHours: num(env.BOOZY_COMMIT_HOURS, 24),
     },
   };
 }

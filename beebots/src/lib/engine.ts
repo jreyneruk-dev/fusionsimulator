@@ -84,7 +84,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
       decisions.push({
         beeId: b.beeId,
         ts: now,
-        menu: buildMenu(b, market, cfg),
+        style: b.style,
         verdict: null,
         finalAction: `STOP_${stop.reason.toUpperCase()}`,
         finalInstId: pos.instId,
@@ -155,7 +155,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
     decisions.push({
       beeId: bee.beeId,
       ts: now,
-      menu,
+      style: bee.style,
       verdict,
       finalAction: final.action,
       finalInstId: final.instId,

@@ -18,6 +18,11 @@ describe("breakout (Waggle)", () => {
     expect(menu.options.map((o) => o.action)).toEqual(["LONG_BTC-USDT-SWAP", "LONG_ETH-USDT-SWAP"]);
     expect(menu.forced).toBeNull(); // live rules: never forced in
   });
+  it("blends 7d, 24h and attention into the score", () => {
+    const s = snapshot({ r7d: 1, r24: 0.1, volZ: 2 });
+    expect(momentumScore(s)).toBeCloseTo(1 + 0.03 + 0.2, 9);
+  });
+
   it("offers no opens while positioned, only ride/cut", () => {
     const p = { instId: "BTC-USDT-SWAP", side: "long" as const, notionalUsd: 200, entryPrice: 90, entryTs: 0, leverage: 1 };
     const b = bee({ beeId: "waggle", style: "breakout", position: p });
@@ -44,7 +49,6 @@ describe("trend (Hover)", () => {
     const menu = trendMenu(b, M, cfg());
     expect(menu.forced).not.toBeNull();
     expect(menu.forced!.sizeFrac).toBe(0);
-    expect(menu.forcedReason).toContain("never flat");
   });
 });
 
@@ -67,9 +71,5 @@ describe("momentum (Sting)", () => {
   it("forces an ape on the top candidate when flat (never flat > 1 tick)", () => {
     const menu = momentumMenu(bee({ beeId: "sting", style: "momentum" }), M, cfg());
     expect(menu.forced!.action).toBe("APE_DOGE-USDT-SWAP");
-  });
-  it("blends 7d, 24h and attention into the score", () => {
-    const s = snapshot({ r7d: 1, r24: 0.1, volZ: 2 });
-    expect(momentumScore(s)).toBeCloseTo(1 + 0.03 + 0.2, 9);
   });
 });

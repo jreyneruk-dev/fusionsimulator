@@ -38,20 +38,6 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export interface OkxInstrument {
-  instId: string;
-  instType: string;
-  uly?: string;
-  ctVal?: string;
-  settleCcy?: string;
-}
-
-/** Crypto X-Perps (linear USDT perpetuals). SWAP covers crypto; stock tokens share the type but are filtered by universe. */
-export async function fetchInstruments(): Promise<OkxInstrument[]> {
-  const rows = (await get("/api/v5/public/instruments", { instType: "SWAP" })) as OkxInstrument[];
-  return rows.filter((r) => r.instId?.endsWith("-USDT-SWAP"));
-}
-
 export interface OkxTicker {
   instId: string;
   last: string;
@@ -61,9 +47,8 @@ export interface OkxTicker {
   volCcy24h: string;
   /** 24h volume in QUOTE currency (USDT) — the dollar-ish figure */
   volCcyQuote24h?: string;
-  open24h?: string;
+  /** UTC 00:00 open of the current 24h window (r24 fallback when patching) */
   sodUtc0?: string;
-  sodUtc8?: string;
 }
 
 /** 24h volume in USD terms: quote volume when present, else base volume x price. */
@@ -95,6 +80,7 @@ export interface CandleBar {
   v: number;
 }
 
+/** OKX wire rows -> typed bars; exported for the shape regression test. */
 export function parseCandleRows(rows: string[][]): CandleBar[] {
   return rows
     .map((r) => ({ ts: Number(r[0]), o: Number(r[1]), h: Number(r[2]), l: Number(r[3]), c: Number(r[4]), v: Number(r[5]) }))
