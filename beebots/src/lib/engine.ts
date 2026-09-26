@@ -72,7 +72,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
   // Forced closes take the same paper-ledger path as any other fill.
   const decisions: Decision[] = [];
   const fills: Fill[] = [];
-  const postStop = new Map<string, BeeAccount>(withFunding.map((b) => [b.beeId, b]));
+  const current = new Map<string, BeeAccount>(withFunding.map((b) => [b.beeId, b]));
   for (const b of withFunding) {
     if (!b.position) continue;
     const stop = evaluateStops(b, market, cfg, now);
@@ -80,7 +80,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
       const pos = b.position;
       const res = closePosition(b, 1, market, now);
       fills.push(res.fill);
-      postStop.set(res.bee.beeId, res.bee);
+      current.set(res.bee.beeId, res.bee);
       decisions.push({
         beeId: b.beeId,
         ts: now,
@@ -100,13 +100,13 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
       if (s) {
         const anchor = b.position.bestPrice ?? b.position.entryPrice;
         const best = b.position.side === "long" ? Math.max(anchor, s.last) : Math.min(anchor, s.last);
-        postStop.set(b.beeId, { ...b, position: { ...b.position, bestPrice: best } });
+        current.set(b.beeId, { ...b, position: { ...b.position, bestPrice: best } });
       }
     }
   }
 
   // 4. Benched / retired / paused bees never see Jev; code rides their positions.
-  const active = [...postStop.values()].filter((b) => {
+  const active = [...current.values()].filter((b) => {
     if (b.paused) return false;
     const caps = capsFor(b, cfg, equityOf(b, market), now);
     if (caps.retired) {
@@ -143,8 +143,6 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
   }
 
   // 5. Risk layer per bee: record the decision, then act.
-  const finalBees = new Map<string, BeeAccount>([...postStop.values()].map((b) => [b.beeId, b]));
-
   for (let i = 0; i < active.length; i++) {
     const bee = active[i];
     const menu = batch[i].menu;
@@ -165,7 +163,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
       vetoReason: final.vetoReason,
     });
 
-    let b = finalBees.get(bee.beeId)!;
+    let b = current.get(bee.beeId)!;
     try {
       if (final.kind === "close" && b.position && final.instId === b.position.instId) {
         const portion = final.action === "TRIM_HALF" ? 0.5 : 1;
@@ -184,7 +182,7 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
             const res = addToPosition(b, final.sizeUsd, market, now);
             b = res.bee;
             fills.push(res.fill);
-            finalBees.set(b.beeId, b);
+            current.set(b.beeId, b);
             continue;
           }
         }
@@ -200,13 +198,13 @@ export async function runTick(input: TickInput): Promise<TickOutput> {
     } catch (err) {
       notes.push(`${bee.name}: action failed (${err instanceof Error ? err.message : String(err)})`);
     }
-    finalBees.set(b.beeId, b);
+    current.set(b.beeId, b);
   }
 
   return {
     decisions,
     fills,
-    bees: rolled.map((b) => finalBees.get(b.beeId) ?? b),
+    bees: rolled.map((b) => current.get(b.beeId) ?? b),
     jevCostUsd: jevCost,
     jevCapped,
     provider: providerKind,

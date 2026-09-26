@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import EmbeddedPostgres from "embedded-postgres";
 import postgres from "postgres";
+import { fakeVerdict } from "../src/lib/jev.ts";
+import type { BeeAccount, MarketData, MarketSnapshot, MoveMenu } from "../src/lib/types.ts";
 
 const PG_PORT = 5499;
 const APP_PORT = 3215;
@@ -157,6 +159,78 @@ async function main() {
   const otherAncient = await sql`SELECT (SELECT count(*)::int FROM fills WHERE notional_usd = 1) AS f, (SELECT count(*)::int FROM equity_history WHERE equity_usd = 1) AS e`;
   ok(Number(otherAncient[0].f) === 0 && Number(otherAncient[0].e) === 0, "old fills/equity rows survived pruning");
   log(`[${++step}] pruneOldRows: old test rows gone from all three tables, recent rows kept`);
+
+  // 12. UTC midnight rollover on real DB rows. Closest reachable seam: the
+  // pure runTick + real Postgres upsert (productionTick cannot take a live
+  // OKX pull at an arbitrary synthetic clock). One tick at today's last UTC
+  // minute, one just after — the day anchor must reset, counters must be
+  // fresh, the funding boundary accrues, and decisions must continue.
+  {
+    const { runTick } = await import("../src/lib/engine.ts");
+    const { loadConfig } = await import("../src/lib/config.ts");
+    const { upsertBees, loadBees, insertDecisions } = await import("../src/lib/db.ts");
+    const { fetchTickers, fetchCandleSeries } = await import("../src/lib/okx/client.ts");
+    const { tradableUniverse } = await import("../src/lib/okx/aggregator.ts");
+    const cfg = loadConfig();
+    const btc = `${(await tradableUniverse(cfg, 1))[0]}-USDT-SWAP`;
+    const [tickers, bars] = await Promise.all([fetchTickers(), fetchCandleSeries(btc, "1D", 9)]);
+    const t = tickers.find((x) => x.instId === btc)!;
+    const last = Number(t.last);
+    const daily = bars.map((b) => b.c);
+    const real: MarketData = {
+      byInst: {
+        [btc]: {
+          instId: btc,
+          last,
+          spreadBps: 2,
+          vol24hUsd: 5_000_000,
+          r1: 0.001,
+          r24: last / daily[daily.length - 1] - 1 || 0.01,
+          r7d: 0.05,
+          rsi: 55,
+          pctB: 0.6,
+          atrPct: 1,
+          atr4hPct: 0.5,
+          ensemble: 3,
+          funding: 0.0001,
+          fundingZ: 0.2,
+          oiChange1h: 0.01,
+          volZ: 0.5,
+          todayOpen: last * 0.99,
+          prevRange: last * 0.01,
+          oi: null,
+        },
+      },
+      ts: Date.now(),
+    };
+    const n = new Date();
+    const beforeMidnight = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 23, 59);
+    const afterMidnight = beforeMidnight + 120_000; // first tick of the next UTC day
+    const ask = async (batch: { bee: BeeAccount; menu: MoveMenu }[]) => batch.map(({ bee: bb, menu }) => fakeVerdict(bb.beeId, menu));
+
+    const out1 = await runTick({ bees: await loadBees(), market: real, cfg, jevUsedTodayUsd: 0, now: beforeMidnight, deps: { ask } });
+    await upsertBees(out1.bees);
+    await insertDecisions(out1.decisions);
+    const anchorBefore = Number((await sql`SELECT day_start_equity_usd FROM bees WHERE bee_id = 'waggle'`)[0].day_start_equity_usd);
+    const decBefore = Number((await sql`SELECT count(*)::int AS n FROM decisions`)[0].n);
+
+    const out2 = await runTick({ bees: out1.bees, market: real, cfg, jevUsedTodayUsd: 0, now: afterMidnight, deps: { ask } });
+    await upsertBees(out2.bees);
+    await insertDecisions(out2.decisions);
+    const rows = await sql`SELECT bee_id, day_key, day_start_equity_usd, trades_today, fees_today, funding_paid FROM bees ORDER BY bee_id`;
+    const waggle = rows.find((r) => r.bee_id === "waggle")!;
+    const hover = rows.find((r) => r.bee_id === "hover")!;
+    const newDay = new Date(afterMidnight).toISOString().slice(0, 10);
+    ok(String(waggle.day_key) === newDay, `day_key did not roll over (${waggle.day_key})`);
+    ok(Number(waggle.day_start_equity_usd) !== anchorBefore, "day anchor did not reset across midnight");
+    ok(Number(waggle.trades_today) === 1, `expected a fresh day's count of 1 after the rollover (stop-close, then re-open), got ${waggle.trades_today}`);
+    ok(Number(hover.trades_today) === 0, `a holding bee must not gain trades across midnight, got ${hover.trades_today}`);
+    ok(out2.fills.some((f) => f.kind === "close"), "no day-close fill at the boundary");
+    ok(Number(waggle.funding_paid) !== 0, "the 00:00 UTC funding boundary did not accrue");
+    const decAfter = Number((await sql`SELECT count(*)::int AS n FROM decisions`)[0].n);
+    ok(decAfter > decBefore, "no decisions recorded after the rollover");
+    log(`[${++step}] UTC rollover: day_key=${waggle.day_key} anchor ${anchorBefore.toFixed(2)} -> ${Number(waggle.day_start_equity_usd).toFixed(2)}, waggle trades=1 (day-close + re-open), hover trades=0, decisions ${decBefore} -> ${decAfter}`);
+  }
 
   log(`\nALL ${step} STEPS PASSED — the DB-backed loop is real.`);
 }

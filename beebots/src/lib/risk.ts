@@ -79,7 +79,8 @@ function findOption(menu: MoveMenu, action: string): MoveOption | undefined {
 }
 
 function convictionIndex(verdict: JevVerdict, menu: MoveMenu): number {
-  return Math.max(0, menu.convictionScale.indexOf(verdict.convictionScaleLabel ?? "") === -1 ? verdict.conviction : menu.convictionScale.indexOf(verdict.convictionScaleLabel));
+  const idx = menu.convictionScale.indexOf(verdict.convictionScaleLabel ?? "");
+  return idx === -1 ? Math.max(0, verdict.conviction) : idx;
 }
 
 /**

@@ -92,7 +92,7 @@ npm test             # vitest: risk gates, ledger math, indicators, menus, stops
 npm run typecheck
 npm run build
 npm run tick:once    # one real engine tick against live OKX data (needs DATABASE_URL)
-npx tsx scripts/e2e-local.ts   # 11-step DB-backed loop proof: embedded Postgres, served build, single-flight guard, retention prune
+npx tsx scripts/e2e-local.ts   # 12-step DB-backed loop proof: embedded Postgres, served build, single-flight guard, retention prune, UTC-rollover
 ```
 
 ## Cost model (launch config)
