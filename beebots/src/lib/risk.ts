@@ -64,30 +64,18 @@ export function capsFor(bee: BeeAccount, cfg: EngineConfig, equityNow: number, n
   return { tradesLeft, feeBudgetLeft, dayPnlPct, lossStopTripped, retired, benched, inCooldown };
 }
 
-function holdFor(bee: BeeAccount, reason: string): FinalAction {
+/**
+ * The single "code blocks this move" answer: a positioned bee HOLDs (code
+ * rides, stops stay live), a flat bee WAITs. Every vetoed exit returns this —
+ * one construction instead of one per gate.
+ */
+function block(bee: BeeAccount, reason: string): FinalAction {
   return { action: bee.position ? "HOLD" : "WAIT", kind: bee.position ? "hold" : "wait", instId: bee.position?.instId ?? null, side: bee.position?.side ?? null, sizeUsd: 0, vetoed: true, vetoReason: reason };
 }
 
 function findOption(menu: MoveMenu, action: string): MoveOption | undefined {
   const needle = action.trim().toUpperCase();
   return menu.options.find((o) => o.action.toUpperCase() === needle);
-}
-
-/** Build a test verdict: choices default to the first menu option at top conviction. */
-export function verdict(beeId: string, menu: MoveMenu, over: Partial<JevVerdict> = {}): JevVerdict {
-  const choice = over.choice ?? menu.options[0]?.action ?? "WAIT";
-  return {
-    beeId,
-    choice,
-    probabilities: { [choice]: 0.9 },
-    conviction: menu.convictionScale.length - 1,
-    convictionScaleLabel: menu.convictionScale[menu.convictionScale.length - 1],
-    provider: "fake",
-    inputTokens: 100,
-    costUsd: 0,
-    latencyMs: 1,
-    ...over,
-  };
 }
 
 function convictionIndex(verdict: JevVerdict, menu: MoveMenu): number {
@@ -112,14 +100,14 @@ export function applyRisk(
   const styleCfg = bee.style === "breakout" ? cfg.breakout : bee.style === "trend" ? cfg.trend : cfg.momentum;
   const maxNotional = Math.min(cfg.maxNotionalUsdPerBee, cfg.maxLeverage * equityNow);
 
-  if (caps.retired) return holdFor(bee, "retired: equity below the retirement floor");
+  if (caps.retired) return block(bee, "retired: equity below the retirement floor");
   if (caps.lossStopTripped) {
     // Engine closes the position (reduce-only) before this in real flow; here we insist on close.
     if (bee.position) {
       const p = bee.position;
       return { action: "CUT_LOSS", kind: "close", instId: p.instId, side: p.side, sizeUsd: p.notionalUsd, vetoed: true, vetoReason: `daily loss stop tripped (${caps.dayPnlPct.toFixed(1)}%)` };
     }
-    return holdFor(bee, `daily loss stop tripped (${caps.dayPnlPct.toFixed(1)}%) — sent home until 00:00 UTC`);
+    return block(bee, `daily loss stop tripped (${caps.dayPnlPct.toFixed(1)}%) — sent home until 00:00 UTC`);
   }
 
   const openGated = (opt: MoveOption): string | null => {
@@ -138,16 +126,16 @@ export function applyRisk(
 
   // --- No verdict: benched or Jev down. Code rides; forced entries only if allowed.
   if (!verdict) {
-    if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: "benched — code-only management (stops still active)" };
+    if (bee.position) return block(bee, "benched — code-only management (stops still active)");
     if (menu.forced && !caps.benched) {
       const gate = openGated(menu.forced);
       const sizeUsd = menu.forced.sizeFrac === 0 ? cfg.trend.minSizeUsd : menu.forced.sizeFrac! * maxNotional;
       if (!gate && !budgetBlocks(sizeUsd) && !(menu.forced.sizeFrac! > 0 && caps.inCooldown)) {
         return { action: menu.forced.action, kind: "open", instId: menu.forced.instId ?? null, side: menu.forced.side ?? null, sizeUsd, vetoed: false, vetoReason: null };
       }
-      return holdFor(bee, gate ?? "forced entry blocked by gates");
+      return block(bee, gate ?? "forced entry blocked by gates");
     }
-    return holdFor(bee, "benched (cap or fee budget tripped) — forcing suspended");
+    return block(bee, "benched (cap or fee budget tripped) — forcing suspended");
   }
 
   // --- Jev chose. Find the option; unknown choices fall back to code.
@@ -160,7 +148,7 @@ export function applyRisk(
         return { action: menu.forced.action, kind: "open", instId: menu.forced.instId ?? null, side: menu.forced.side ?? null, sizeUsd, vetoed: false, vetoReason: `invalid choice "${verdict.choice}" -> forced` };
       }
     }
-    return holdFor(bee, `invalid choice "${verdict.choice}"`);
+    return block(bee, `invalid choice "${verdict.choice}"`);
   }
 
   const opens = (k: MoveKind) => k === "open" || k === "switch" || k === "flip";
@@ -170,7 +158,7 @@ export function applyRisk(
   if (bee.style === "trend" && opens(chosen.kind)) {
     const cIdx = convictionIndex(verdict, menu);
     if (prob < cfg.trend.minOpenProb || cIdx < cfg.trend.minConvictionIdx) {
-      if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: `gate failed: P=${prob.toFixed(2)} conviction=${verdict.convictionScaleLabel ?? verdict.conviction}` };
+      if (bee.position) return block(bee, `gate failed: P=${prob.toFixed(2)} conviction=${verdict.convictionScaleLabel ?? verdict.conviction}`);
       if (menu.forced) {
         const sizeUsd = cfg.trend.minSizeUsd;
         const gate = openGated(menu.forced);
@@ -178,7 +166,7 @@ export function applyRisk(
           return { action: menu.forced.action, kind: "open", instId: menu.forced.instId ?? null, side: menu.forced.side ?? null, sizeUsd, vetoed: false, vetoReason: "gate failed -> forced minimum (never flat)" };
         }
       }
-      return holdFor(bee, "gate failed and no forced entry available");
+      return block(bee, "gate failed and no forced entry available");
     }
   }
 
@@ -196,10 +184,7 @@ export function applyRisk(
 
   // Opens / switches / adds: gates, caps, clamps.
   const gateFail = openGated(chosen);
-  if (gateFail) {
-    if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: gateFail };
-    return holdFor(bee, gateFail);
-  }
+  if (gateFail) return block(bee, gateFail);
   // Z2 funding veto (BIZZY_BEE.md): blocks NEW breakout longs. Adds to the
   // held coin and re-opens of the same long don't change net exposure, so
   // they are exempt — the veto never forces a close (that's the stops' job).
@@ -207,17 +192,13 @@ export function applyRisk(
     const sameExposure = bee.position && bee.position.instId === chosen.instId && bee.position.side === "long";
     if (!sameExposure) {
       const veto = fundingVeto(chosen.instId, market.byInst[chosen.instId]?.fundingZ ?? null);
-      if (veto.vetoed) {
-        if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: veto.reason };
-        return holdFor(bee, veto.reason!);
-      }
+      if (veto.vetoed) return block(bee, veto.reason!);
     }
   }
   if (opens(chosen.kind) && caps.tradesLeft <= 0) {
-    if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: `trade cap reached (${bee.tradesToday} today) — riding until 00:00 UTC` };
-    return holdFor(bee, `trade cap reached (${bee.tradesToday} today)`);
+    return block(bee, `trade cap reached (${bee.tradesToday} today) — riding until 00:00 UTC`);
   }
-  if (chosen.kind === "add" && !bee.position) return holdFor(bee, "add with no position");
+  if (chosen.kind === "add" && !bee.position) return block(bee, "add with no position");
 
   let sizeUsd: number;
   if (chosen.sizeFrac === 0 && bee.style === "trend") sizeUsd = cfg.trend.minSizeUsd;
@@ -226,17 +207,14 @@ export function applyRisk(
   if (chosen.kind === "add" && bee.position) {
     const room = maxNotional - bee.position.notionalUsd;
     sizeUsd = Math.min(sizeUsd, Math.max(room, 0));
-    if (sizeUsd <= 0) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: "at max notional — nothing to add" };
+    if (sizeUsd <= 0) return block(bee, "at max notional — nothing to add");
   } else {
     sizeUsd = Math.min(sizeUsd, maxNotional);
-    if (sizeUsd < 1) return holdFor(bee, "size rounds to zero");
+    if (sizeUsd < 1) return block(bee, "size rounds to zero");
   }
 
   const budgetFail = budgetBlocks(sizeUsd);
-  if (budgetFail) {
-    if (bee.position) return { action: "HOLD", kind: "hold", instId: bee.position.instId, side: bee.position.side, sizeUsd: 0, vetoed: true, vetoReason: budgetFail };
-    return holdFor(bee, budgetFail);
-  }
+  if (budgetFail) return block(bee, budgetFail);
   if (opens(chosen.kind) && caps.inCooldown && !(menu.forced && chosen.action === menu.forced.action && chosen.sizeFrac === 0)) {
     return { action: chosen.action, kind: chosen.kind, instId: chosen.instId ?? null, side: chosen.side ?? null, sizeUsd, vetoed: true, vetoReason: `cooldown: ${styleCfg.cooldownMinutes}min after the last close` };
   }

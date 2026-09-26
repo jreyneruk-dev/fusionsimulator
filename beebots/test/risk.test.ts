@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyRisk, capsFor, dayKeyOf, verdict } from "@/lib/risk";
+import { applyRisk, capsFor, dayKeyOf } from "@/lib/risk";
 import { TAKER_FEE_RATE, ROUND_TRIP_FEE_RATE, equityOf } from "@/lib/ledger";
-import { bee, cfg, market, menuOf, snapshot } from "./helpers";
+import { bee, cfg, market, menuOf, snapshot, verdict } from "./helpers";
 import { fakeVerdict } from "@/lib/jev";
 
 const M = market({

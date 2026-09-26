@@ -9,10 +9,15 @@
  * reversal happens here, once, so no consumer can receive the wrong order.
  */
 
-const BASE = process.env.OKX_API_BASE || "https://eea.okx.com";
+import { loadConfig } from "@/lib/config";
 
+/**
+ * Base URL comes from cfg per call — the last non-route env read outside
+ * config.ts, removed (the old module-scope constant was immutable per process
+ * and untestable per call).
+ */
 async function get(path: string, params: Record<string, string | number | undefined>, attempt = 0): Promise<unknown[]> {
-  const url = new URL(path, BASE);
+  const url = new URL(path, okxBase());
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined) url.searchParams.set(k, String(v));
   }
@@ -32,6 +37,10 @@ async function get(path: string, params: Record<string, string | number | undefi
   const body = (await res.json()) as { code: string; data: unknown[] };
   if (body.code !== "0") throw new Error(`OKX ${path} code ${body.code}`);
   return body.data ?? [];
+}
+
+function okxBase(): string {
+  return loadConfig().okxApiBase;
 }
 
 function message(err: unknown): string {

@@ -9,6 +9,7 @@
 import type { BeeAccount, JevVerdict, MarketData, MoveMenu } from "@/lib/types";
 import type { EngineConfig } from "@/lib/config";
 import type { EngineDeps } from "@/lib/engine";
+import { unrealisedPnl } from "@/lib/ledger";
 
 const JEV_USD_PER_INPUT_TOKEN = 0.042 / 1_000_000;
 
@@ -27,7 +28,7 @@ export function beeState(bee: BeeAccount, market: MarketData, menu: MoveMenu): R
   const p = bee.position;
   const posSnap = p ? market.byInst[p.instId] : undefined;
   const atrPx = posSnap?.atrPct ? (posSnap.atrPct / 100) * p!.entryPrice : 0;
-  const pnlUsd = p && posSnap ? (posSnap.last - p.entryPrice) * (p.side === "long" ? 1 : -1) * (p.notionalUsd / Math.max(p.entryPrice, 1e-9)) : 0;
+  const pnlUsd = p ? unrealisedPnl(bee, market) : 0;
   const f = (n: number | null | undefined, d = 2) => (n === null || n === undefined || !Number.isFinite(n) ? null : Number(n.toFixed(d)));
   return {
     bee: { style: bee.style, startEquity: f(bee.startEquityUsd), realizedPnl: f(bee.realizedPnl), feesToday: f(bee.feesToday), tradesToday: bee.tradesToday },

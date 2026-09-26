@@ -50,7 +50,7 @@ describe("runTick (fake Jev, paper)", () => {
     expect(sting.position!.instId).toBe("DOGE-USDT-SWAP");
     expect(out.fills).toHaveLength(3);
     expect(out.jevCostUsd).toBe(0); // fake provider costs nothing
-    expect(out.provider).toBe("ai-gateway" in {} ? out.provider : out.provider); // provider kind recorded
+    expect(out.provider).toBe("none"); // keyless cfg: the provider kind is recorded
   });
 
   it("shuts the bee out of thin coins: the menu is WAIT and nothing fills", async () => {

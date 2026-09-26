@@ -5,11 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 import { evaluateStops } from "@/lib/stops";
-import { FUNDING_Z_BLOCK, fundingVeto, applyRisk, verdict } from "@/lib/risk";
+import { FUNDING_Z_BLOCK, fundingVeto, applyRisk } from "@/lib/risk";
 import { runTick } from "@/lib/engine";
 import type { EngineDeps } from "@/lib/engine";
 import { fakeVerdict } from "@/lib/jev";
-import { bee, cfg, market, menuOf, snapshot } from "./helpers";
+import { bee, cfg, market, menuOf, snapshot, verdict } from "./helpers";
 import type { JevVerdict, Position } from "@/lib/types";
 
 const NOW = Date.UTC(2026, 8, 26, 12);
