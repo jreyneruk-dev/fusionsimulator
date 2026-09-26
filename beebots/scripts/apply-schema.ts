@@ -10,10 +10,17 @@ if (!url) {
 }
 const sql = postgres(url, { prepare: false });
 const ddl = readFileSync(new URL("../src/lib/schema.sql", import.meta.url), "utf8");
+// Strip comment LINES first, then split on ';': comments may themselves
+// contain semicolons, and a statement chunk may begin with comment lines
+// (the old startsWith("--") filter silently dropped the whole first CREATE
+// TABLE because the file header precedes it).
 const statements = ddl
+  .split("\n")
+  .filter((line) => !line.trim().startsWith("--"))
+  .join("\n")
   .split(";")
   .map((s) => s.trim())
-  .filter((s) => s.length > 0 && !s.startsWith("--"));
+  .filter((s) => s.length > 0);
 for (const statement of statements) {
   await sql.unsafe(statement);
 }

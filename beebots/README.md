@@ -58,7 +58,9 @@ Dependencies flow one way: `okx/` and `jev.ts` are adapters ← pure logic ← `
 
 State ownership: bee/account state lives in Postgres (one row per bee); the market
 indicator cache lives in `prod/market.ts` (one per process, via `host.ts`); nothing else
-holds mutable state. New rules go in `stops.ts`/`risk.ts`; new display data in `views.ts`.
+holds mutable state. Ticks are single-flight across serverless isolates via a `tick_state`
+claim row (atomic claim/until-expiry/release — an in-process mutex cannot do this on Vercel).
+New rules go in `stops.ts`/`risk.ts`; new display data in `views.ts`.
 
 ## Deploy
 
@@ -90,6 +92,7 @@ npm test             # vitest: risk gates, ledger math, indicators, menus, stops
 npm run typecheck
 npm run build
 npm run tick:once    # one real engine tick against live OKX data (needs DATABASE_URL)
+npx tsx scripts/e2e-local.ts   # full DB-backed loop proof: embedded Postgres + served build + concurrent-tick guard
 ```
 
 ## Cost model (launch config)
