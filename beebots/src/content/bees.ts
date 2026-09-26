@@ -10,8 +10,6 @@ export interface BeeSeed {
   name: string;
   style: Style;
   tagline: string;
-  /** null = the style's default universe */
-  coins: string[] | null;
 }
 
 export const BEE_SEEDS: BeeSeed[] = [
@@ -20,21 +18,18 @@ export const BEE_SEEDS: BeeSeed[] = [
     name: "Waggle",
     style: "breakout",
     tagline: "One clean breakout a day, then rides it to the UTC close.",
-    coins: null,
   },
   {
     beeId: "hover",
     name: "Hover",
     style: "trend",
     tagline: "Patient ensemble trend-follower. Never flat, rarely wrong for long.",
-    coins: null,
   },
   {
     beeId: "sting",
     name: "Sting",
     style: "momentum",
     tagline: "Chases the strongest 7-day mover and adds to winners.",
-    coins: null,
   },
 ];
 

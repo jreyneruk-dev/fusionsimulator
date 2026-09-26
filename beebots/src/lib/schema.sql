@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS bees (
   day_start_equity_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
   trades_today        INTEGER NOT NULL DEFAULT 0,
   fees_today          DOUBLE PRECISION NOT NULL DEFAULT 0,
-  flat_since_ts       BIGINT,
   last_close_ts       BIGINT,
   last_funding_ts     BIGINT
 );
@@ -31,6 +30,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   probabilities TEXT,
   conviction    TEXT,
   provider      TEXT NOT NULL DEFAULT 'none',
+  cost_usd      DOUBLE PRECISION NOT NULL DEFAULT 0,
   final_action  TEXT NOT NULL,
   final_inst_id TEXT,
   final_side    TEXT,

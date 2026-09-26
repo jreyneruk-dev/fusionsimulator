@@ -1,30 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { applyRisk, capsFor, dayKeyOf, equityOf } from "@/lib/risk";
-import { TAKER_FEE_RATE, ROUND_TRIP_FEE_RATE } from "@/lib/ledger";
+import { applyRisk, capsFor, dayKeyOf, verdict } from "@/lib/risk";
+import { TAKER_FEE_RATE, ROUND_TRIP_FEE_RATE, equityOf } from "@/lib/ledger";
 import { bee, cfg, market, menuOf, snapshot } from "./helpers";
 import { fakeVerdict } from "@/lib/jev";
-import type { JevVerdict } from "@/lib/types";
 
 const M = market({
   "BTC-USDT-SWAP": snapshot(),
   "ETH-USDT-SWAP": snapshot({ instId: "ETH-USDT-SWAP", last: 50 }),
   "RAY-USDT-SWAP": snapshot({ instId: "RAY-USDT-SWAP", spreadBps: 58.6 }), // his real spread-gate case
 });
-
-function verdict(over: Partial<JevVerdict>): JevVerdict {
-  return {
-    beeId: "t",
-    choice: "APE_BTC-USDT-SWAP",
-    probabilities: { "APE_BTC-USDT-SWAP": 0.9 },
-    conviction: 3,
-    convictionScaleLabel: "legendary",
-    provider: "fake",
-    inputTokens: 100,
-    costUsd: 0,
-    latencyMs: 1,
-    ...over,
-  };
-}
 
 describe("capsFor", () => {
   it("counts down trades and fee budget", () => {
@@ -56,7 +40,7 @@ describe("applyRisk: allowed", () => {
   it("lets a flat momentum bee ape the top candidate at clamped size", () => {
     const b = bee({ beeId: "sting", style: "momentum" });
     const menu = menuOf("sting", "momentum", [{ action: "APE_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.5 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting" }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu), M, cfg());
     expect(out.vetoed).toBe(false);
     expect(out.kind).toBe("open");
     expect(out.instId).toBe("BTC-USDT-SWAP");
@@ -66,7 +50,7 @@ describe("applyRisk: allowed", () => {
     const p = { instId: "BTC-USDT-SWAP", side: "long" as const, notionalUsd: 200, entryPrice: 95, entryTs: Date.now(), leverage: 1 };
     const b = bee({ beeId: "sting", style: "momentum", position: p });
     const menu = menuOf("sting", "momentum", [{ action: "BAIL", label: "", kind: "close", instId: "BTC-USDT-SWAP" }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "BAIL", probabilities: { BAIL: 0.9 } }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "BAIL" }), M, cfg());
     expect(out.vetoed).toBe(false);
     expect(out.kind).toBe("close");
     expect(out.sizeUsd).toBeCloseTo(200, 6);
@@ -77,7 +61,7 @@ describe("applyRisk: vetoed", () => {
   it("blocks the spread gate (the real RAY case: 58.6bp vs 15bp)", () => {
     const b = bee({ beeId: "sting", style: "momentum" });
     const menu = menuOf("sting", "momentum", [{ action: "APE_RAY-USDT-SWAP", label: "", kind: "open", instId: "RAY-USDT-SWAP", side: "long", sizeFrac: 0.5 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "APE_RAY-USDT-SWAP", probabilities: { "APE_RAY-USDT-SWAP": 0.9 } }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "APE_RAY-USDT-SWAP" }), M, cfg());
     expect(out.vetoed).toBe(true);
     expect(out.vetoReason).toContain("58.6bp");
   });
@@ -85,7 +69,7 @@ describe("applyRisk: vetoed", () => {
     const thin = market({ "DOGE-USDT-SWAP": snapshot({ instId: "DOGE-USDT-SWAP", vol24hUsd: 100 }) });
     const b = bee({ beeId: "sting", style: "momentum" });
     const menu = menuOf("sting", "momentum", [{ action: "APE_DOGE-USDT-SWAP", label: "", kind: "open", instId: "DOGE-USDT-SWAP", side: "long", sizeFrac: 0.5 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "APE_DOGE-USDT-SWAP" }), thin, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "APE_DOGE-USDT-SWAP" }), thin, cfg());
     expect(out.vetoed).toBe(true);
     expect(out.vetoReason).toContain("volume gate");
   });
@@ -96,33 +80,26 @@ describe("applyRisk: vetoed", () => {
       { action: "APE_ETH-USDT-SWAP", label: "", kind: "switch", instId: "ETH-USDT-SWAP", side: "long", sizeFrac: 0.5 },
       { action: "RIDE", label: "", kind: "hold" },
     ]);
-    const out = applyRisk(positioned, menu, verdict({ beeId: "sting", choice: "APE_ETH-USDT-SWAP" }), M, cfg());
+    const out = applyRisk(positioned, menu, verdict("sting", menu, { choice: "APE_ETH-USDT-SWAP" }), M, cfg());
     expect(out.vetoed).toBe(true);
     expect(out.vetoReason).toContain("trade cap reached");
   });
   it("blocks opens whose round-trip fee does not fit the daily fee budget", () => {
     const b = bee({ beeId: "sting", style: "momentum", feesToday: 2.99 });
     const menu = menuOf("sting", "momentum", [{ action: "APE_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 1 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting" }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu), M, cfg());
     // size = 666 -> round trip 0.666 > 0.01 left
     expect(out.vetoed).toBe(true);
     expect(out.vetoReason).toContain("fee budget");
   });
   it("forces CUT_LOSS when the daily loss stop trips with a position", () => {
-    const p = { instId: "BTC-USDT-SWAP", side: "long" as const, notionalUsd: 200, entryPrice: 95, entryTs: Date.now(), leverage: 1 };
-    const b = bee({ beeId: "sting", style: "momentum", position: p, dayStartEquityUsd: 333, startEquityUsd: 333 });
-    // equity = 333 + (100-95)/95*200 = 343.5 -> not a loss; make entry high instead
-    const losing = { ...p, entryPrice: 115 };
-    const b2 = bee({ beeId: "sting", style: "momentum", position: losing, dayStartEquityUsd: 333, startEquityUsd: 333 });
+    // entry 118: unrealised (100-118)/118*200 = -30.5; equity 302.5 -> day pnl -9.2% -> trips
+    const losing = { instId: "BTC-USDT-SWAP", side: "long" as const, notionalUsd: 200, entryPrice: 118, entryTs: Date.now(), leverage: 1 };
+    const b = bee({ beeId: "sting", style: "momentum", position: losing, dayStartEquityUsd: 333, startEquityUsd: 333 });
     const menu = menuOf("sting", "momentum", [{ action: "RIDE", label: "", kind: "hold" }]);
-    const out = applyRisk(b2, menu, verdict({ beeId: "sting" }), M, cfg());
-    // entry 115: unrealised = (100-115)/115*200 = -26.09; equity 300.9 -> day pnl -9.6% -> trips
-    const b3 = bee({ beeId: "sting", style: "momentum", position: losing, dayStartEquityUsd: 333, startEquityUsd: 333, feesToday: 6, feesPaid: 6 });
-    const out3 = applyRisk(b3, menu, verdict({ beeId: "sting" }), M, cfg());
-    expect(out3.vetoed).toBe(true);
-    expect(out3.action).toBe("CUT_LOSS");
-    void b;
-    void out;
+    const out = applyRisk(b, menu, verdict("sting", menu), M, cfg());
+    expect(out.vetoed).toBe(true);
+    expect(out.action).toBe("CUT_LOSS");
   });
   it("respects the trend conviction gate: P<0.70 cannot open, code forces the minimum", () => {
     const b = bee({ beeId: "hover", style: "trend" });
@@ -132,7 +109,7 @@ describe("applyRisk: vetoed", () => {
       [{ action: "LONG_BTC", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.5 }],
       { action: "LONG_BTC", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0 },
     );
-    const weak = verdict({ beeId: "hover", choice: "LONG_BTC", probabilities: { LONG_BTC: 0.5 }, convictionScaleLabel: "fair", conviction: 1 });
+    const weak = verdict("hover", menu, { choice: "LONG_BTC", probabilities: { LONG_BTC: 0.5 }, convictionScaleLabel: "fair", conviction: 1 });
     const out = applyRisk(b, menu, weak, M, cfg());
     expect(out.vetoed).toBe(false);
     expect(out.sizeUsd).toBeCloseTo(10, 6); // forced minimum, not the 0.5x open
@@ -142,14 +119,14 @@ describe("applyRisk: vetoed", () => {
     const p = { instId: "BTC-USDT-SWAP", side: "long" as const, notionalUsd: 666, entryPrice: 100, entryTs: Date.now(), leverage: 1 };
     const b = bee({ beeId: "sting", style: "momentum", position: p });
     const menu = menuOf("sting", "momentum", [{ action: "DOUBLE_DOWN", label: "", kind: "add", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.25 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "DOUBLE_DOWN" }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "DOUBLE_DOWN" }), M, cfg());
     expect(out.vetoed).toBe(true);
     expect(out.vetoReason).toContain("max notional");
   });
   it("vetoed opens wait when flat and hold when positioned", () => {
     const b = bee({ beeId: "sting", style: "momentum" });
     const menu = menuOf("sting", "momentum", [{ action: "APE_RAY-USDT-SWAP", label: "", kind: "open", instId: "RAY-USDT-SWAP", side: "long", sizeFrac: 0.5 }]);
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "APE_RAY-USDT-SWAP" }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "APE_RAY-USDT-SWAP" }), M, cfg());
     expect(out.kind).toBe("wait");
   });
 });
@@ -181,7 +158,7 @@ describe("applyRisk: no verdict (Jev down / benched)", () => {
   it("falls back to the forced move on an invalid Jev choice", () => {
     const b = bee({ beeId: "sting", style: "momentum" });
     const menu = menuOf("sting", "momentum", [{ action: "APE_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.5 }], { action: "APE_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.5 });
-    const out = applyRisk(b, menu, verdict({ beeId: "sting", choice: "YOLO_BTC" }), M, cfg());
+    const out = applyRisk(b, menu, verdict("sting", menu, { choice: "YOLO_BTC" }), M, cfg());
     expect(out.vetoed).toBe(false);
     expect(out.action).toBe("APE_BTC-USDT-SWAP");
   });

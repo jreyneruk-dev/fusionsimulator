@@ -32,7 +32,7 @@ export async function closeDb(): Promise<void> {
 
 const BEE_COLUMNS = `bee_id, name, style, tagline, start_equity_usd, realized_pnl, fees_paid,
   funding_paid, spread_paid, position_json, retired, paused, day_key,
-  day_start_equity_usd, trades_today, fees_today, flat_since_ts, last_close_ts,
+  day_start_equity_usd, trades_today, fees_today, last_close_ts,
   last_funding_ts` as const;
 
 export async function upsertBees(bees: BeeAccount[]): Promise<void> {
@@ -41,13 +41,13 @@ export async function upsertBees(bees: BeeAccount[]): Promise<void> {
     await db`
       INSERT INTO bees (bee_id, name, style, tagline, start_equity_usd, realized_pnl,
         fees_paid, funding_paid, spread_paid, position_json, retired, paused, day_key,
-        day_start_equity_usd, trades_today, fees_today, flat_since_ts, last_close_ts,
+        day_start_equity_usd, trades_today, fees_today, last_close_ts,
         last_funding_ts)
       VALUES (${b.beeId}, ${b.name}, ${b.style}, ${b.tagline}, ${b.startEquityUsd},
         ${b.realizedPnl}, ${b.feesPaid}, ${b.fundingPaid}, ${b.spreadPaid},
         ${b.position ? JSON.stringify(b.position) : null}, ${b.retired}, ${b.paused},
         ${b.dayKey}, ${b.dayStartEquityUsd}, ${b.tradesToday}, ${b.feesToday},
-        ${b.flatSinceTs}, ${b.lastCloseTs}, ${b.lastFundingTs})
+        ${b.lastCloseTs}, ${b.lastFundingTs})
       ON CONFLICT (bee_id) DO UPDATE SET
         name = EXCLUDED.name, style = EXCLUDED.style, tagline = EXCLUDED.tagline,
         start_equity_usd = EXCLUDED.start_equity_usd, realized_pnl = EXCLUDED.realized_pnl,
@@ -56,7 +56,7 @@ export async function upsertBees(bees: BeeAccount[]): Promise<void> {
         retired = EXCLUDED.retired, paused = EXCLUDED.paused, day_key = EXCLUDED.day_key,
         day_start_equity_usd = EXCLUDED.day_start_equity_usd,
         trades_today = EXCLUDED.trades_today, fees_today = EXCLUDED.fees_today,
-        flat_since_ts = EXCLUDED.flat_since_ts, last_close_ts = EXCLUDED.last_close_ts,
+        last_close_ts = EXCLUDED.last_close_ts,
         last_funding_ts = EXCLUDED.last_funding_ts
     `;
   }
@@ -86,7 +86,6 @@ export async function loadBees(): Promise<BeeAccount[]> {
     dayStartEquityUsd: Number(r.day_start_equity_usd),
     tradesToday: Number(r.trades_today),
     feesToday: Number(r.fees_today),
-    flatSinceTs: r.flat_since_ts ? Number(r.flat_since_ts) : null,
     lastCloseTs: r.last_close_ts ? Number(r.last_close_ts) : null,
     lastFundingTs: r.last_funding_ts ? Number(r.last_funding_ts) : null,
   }));
@@ -99,7 +98,7 @@ export async function insertDecisions(decisions: Decision[]): Promise<void> {
     INSERT INTO decisions ${db(decisions.map((d) => ({
       ts: d.ts,
       bee_id: d.beeId,
-      style: d.menu.style,
+      style: d.style,
       chosen: d.verdict?.choice ?? null,
       probabilities: d.verdict ? JSON.stringify(d.verdict.probabilities) : null,
       conviction: d.verdict?.convictionScaleLabel ?? null,
@@ -110,6 +109,7 @@ export async function insertDecisions(decisions: Decision[]): Promise<void> {
       size_usd: d.sizeUsd,
       vetoed: d.vetoed,
       veto_reason: d.vetoReason,
+      cost_usd: d.verdict?.costUsd ?? 0,
     })))}
   `;
 }
@@ -161,7 +161,7 @@ export async function recentDecisions(limit: number): Promise<Record<string, unk
   const db = getSql();
   return await db`
     SELECT ts, bee_id, style, chosen, probabilities, conviction, provider,
-           final_action, final_inst_id, final_side, size_usd, vetoed, veto_reason
+           final_action, final_inst_id, final_side, size_usd, vetoed, veto_reason, cost_usd
     FROM decisions ORDER BY ts DESC, bee_id LIMIT ${limit}
   `;
 }

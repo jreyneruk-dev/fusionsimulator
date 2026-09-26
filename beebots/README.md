@@ -86,7 +86,7 @@ and holds every position (all loop machinery verifiable at zero cost).
 ```sh
 npm install
 npm run dev          # dashboard on http://localhost:3200 (state API needs DATABASE_URL)
-npm test             # 58 vitest tests: risk gates, ledger math, indicators, menus, fake-Jev e2e tick
+npm test             # vitest: risk gates, ledger math, indicators, menus, stops, fake-Jev e2e tick
 npm run typecheck
 npm run build
 npm run tick:once    # one real engine tick against live OKX data (needs DATABASE_URL)

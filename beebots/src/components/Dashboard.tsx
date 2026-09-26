@@ -108,7 +108,7 @@ export default function Dashboard() {
                   <span className="font-semibold text-hive">
                     {bee.position.side.toUpperCase()} {bee.position.instId.replace("-USDT-SWAP", "")}
                   </span>{" "}
-                  {usd(bee.position.notionalUsd, 0)} @ {bee.position.entryPrice}
+                  {usd(bee.position.notionalUsd, 0)} @ {bee.position.entryPrice} (now {bee.position.mark})
                 </>
               ) : (
                 <span className="text-wax">flat — the risk layer decides when that ends</span>

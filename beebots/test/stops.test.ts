@@ -3,9 +3,9 @@
  * Doc sources are cited inline; see src/lib/stops.ts and risk.ts headers.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { evaluateStops } from "@/lib/stops";
-import { FUNDING_Z_BLOCK, fundingVeto, applyRisk } from "@/lib/risk";
+import { FUNDING_Z_BLOCK, fundingVeto, applyRisk, verdict } from "@/lib/risk";
 import { runTick } from "@/lib/engine";
 import type { EngineDeps } from "@/lib/engine";
 import { fakeVerdict } from "@/lib/jev";
@@ -21,21 +21,6 @@ const M = market({
 
 function pos(over: Partial<Position> = {}): Position {
   return { instId: "BTC-USDT-SWAP", side: "long", notionalUsd: 200, entryPrice: 95, entryTs: NOW, leverage: 1, ...over };
-}
-
-function verdict(over: Partial<JevVerdict>): JevVerdict {
-  return {
-    beeId: "t",
-    choice: "APE_BTC-USDT-SWAP",
-    probabilities: { "APE_BTC-USDT-SWAP": 0.9 },
-    conviction: 3,
-    convictionScaleLabel: "legendary",
-    provider: "fake",
-    inputTokens: 100,
-    costUsd: 0,
-    latencyMs: 1,
-    ...over,
-  };
 }
 
 describe("breakout stops (BIZZY_BEE.md live rules)", () => {
@@ -129,19 +114,19 @@ describe("Z2 funding veto (BIZZY_BEE.md)", () => {
     const hot = market({ "BTC-USDT-SWAP": snapshot({ instId: "BTC-USDT-SWAP", last: 100, todayOpen: 90, prevRange: 4, atrPct: 2, atr4hPct: 2, fundingZ: 1.7 }) });
     const menu = menuOf("waggle", "breakout", [{ action: "LONG_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 1 }]);
     const flat = bee({ beeId: "waggle", style: "breakout" });
-    expect(applyRisk(flat, menu, verdict({ beeId: "waggle", choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW).vetoed).toBe(true);
+    expect(applyRisk(flat, menu, verdict("waggle", menu, { choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW).vetoed).toBe(true);
     // Already long BTC: the choice changes net exposure by zero, so the veto
     // exempts it. The risk layer passes the option kind through; the engine is
     // what converts a same-coin open-kind choice into an add.
     const held = bee({ beeId: "waggle", style: "breakout", position: pos({ entryPrice: 95, notionalUsd: 100 }) });
-    const out = applyRisk(held, menu, verdict({ beeId: "waggle", choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW);
+    const out = applyRisk(held, menu, verdict("waggle", menu, { choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW);
     expect(out.vetoed).toBe(false);
     expect(out.instId).toBe("BTC-USDT-SWAP");
   });
   it("passes a breakout long when funding z is healthy", () => {
     const cool = market({ "BTC-USDT-SWAP": snapshot({ instId: "BTC-USDT-SWAP", last: 100, todayOpen: 90, prevRange: 4, atrPct: 2, atr4hPct: 2, fundingZ: 1.2 }) });
     const menu = menuOf("waggle", "breakout", [{ action: "LONG_BTC-USDT-SWAP", label: "", kind: "open", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 1 }]);
-    const out = applyRisk(bee({ beeId: "waggle", style: "breakout" }), menu, verdict({ beeId: "waggle", choice: "LONG_BTC-USDT-SWAP" }), cool, cfg(), NOW);
+    const out = applyRisk(bee({ beeId: "waggle", style: "breakout" }), menu, verdict("waggle", menu, { choice: "LONG_BTC-USDT-SWAP" }), cool, cfg(), NOW);
     expect(out.vetoed).toBe(false);
     expect(out.kind).toBe("open");
   });
@@ -149,7 +134,7 @@ describe("Z2 funding veto (BIZZY_BEE.md)", () => {
     const hot = market({ "BTC-USDT-SWAP": snapshot({ instId: "BTC-USDT-SWAP", last: 100, todayOpen: 90, prevRange: 4, atrPct: 2, atr4hPct: 2, fundingZ: 1.7 }) });
     const menu = menuOf("waggle", "breakout", [{ action: "LONG_BTC-USDT-SWAP", label: "", kind: "add", instId: "BTC-USDT-SWAP", side: "long", sizeFrac: 0.25 }]);
     const held = bee({ beeId: "waggle", style: "breakout", position: pos({ entryPrice: 95, notionalUsd: 100 }) });
-    const out = applyRisk(held, menu, verdict({ beeId: "waggle", choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW);
+    const out = applyRisk(held, menu, verdict("waggle", menu, { choice: "LONG_BTC-USDT-SWAP" }), hot, cfg(), NOW);
     expect(out.vetoed).toBe(false);
   });
 });

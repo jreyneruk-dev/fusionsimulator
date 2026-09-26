@@ -40,7 +40,6 @@ function seedBees(cfg: EngineConfig, now: number): BeeAccount[] {
     name: s.name,
     style: s.style,
     tagline: s.tagline,
-    coins: s.coins,
     startEquityUsd: cfg.startEquityUsd,
     realizedPnl: 0,
     feesPaid: 0,
@@ -53,7 +52,6 @@ function seedBees(cfg: EngineConfig, now: number): BeeAccount[] {
     dayStartEquityUsd: cfg.startEquityUsd,
     tradesToday: 0,
     feesToday: 0,
-    flatSinceTs: now,
     lastCloseTs: null,
     lastFundingTs: null,
   }));

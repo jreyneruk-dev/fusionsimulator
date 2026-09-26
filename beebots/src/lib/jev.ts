@@ -56,12 +56,7 @@ export function beeState(bee: BeeAccount, market: MarketData, menu: MoveMenu): R
   };
 }
 
-export interface JevRequest {
-  bee: BeeAccount;
-  menu: MoveMenu;
-}
-
-function buildPrompt(batch: JevRequest[], market: MarketData) {
+function buildPrompt(batch: { bee: BeeAccount; menu: MoveMenu }[], market: MarketData) {
   const system =
     "You are Jev, a decision model. For each bee, choose exactly one action from its menu of valid moves and rate your conviction. " +
     "Respond ONLY with minified JSON: {\"decisions\":[{\"beeId\":string,\"action\":string,\"probabilities\":{action:number 0..1},\"conviction\":string}]}. " +
@@ -79,7 +74,7 @@ function buildPrompt(batch: JevRequest[], market: MarketData) {
   return { system, user: JSON.stringify(user) };
 }
 
-function parseVerdicts(raw: string, batch: JevRequest[], provider: EngineConfig["jevProvider"]["kind"], inputTokens: number, latencyMs: number): JevVerdict[] {
+function parseVerdicts(raw: string, batch: { bee: BeeAccount; menu: MoveMenu }[], provider: EngineConfig["jevProvider"]["kind"], inputTokens: number, latencyMs: number): JevVerdict[] {
   const parsed = JSON.parse(raw) as { decisions?: { beeId?: string; action?: string; probabilities?: Record<string, number>; conviction?: string }[] };
   const list = Array.isArray(parsed.decisions) ? parsed.decisions : [];
   return batch.map(({ bee, menu }) => {

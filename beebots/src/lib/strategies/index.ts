@@ -24,57 +24,25 @@ function gated(snap: MarketSnapshot, minVol: number, maxSpreadBps: number): bool
 }
 
 // ---------------------------------------------------------------------------
-// Breakout (Bizzy live rules)
+// Breakout (Bizzy live rules): trigger = today's UTC open + 0.5x yesterday's range
 // ---------------------------------------------------------------------------
-
-export interface BreakoutSetup {
-  instId: string;
-  todayOpen: number;
-  prevRange: number;
-  trigger: number;
-  distToTriggerPct: number;
-}
-
-/** Today's UTC open + 0.5 x yesterday's range, per his live rules. */
-export function breakoutSetups(market: MarketData, universe: string[]): BreakoutSetup[] {
-  const out: BreakoutSetup[] = [];
-  for (const instId of universe) {
-    const s = market.byInst[instId];
-    if (!s) continue;
-    const setup = breakoutSetup(s);
-    if (setup) out.push(setup);
-  }
-  return out;
-}
-
-export function breakoutSetup(s: MarketSnapshot): BreakoutSetup | null {
-  if (s.todayOpen === null || s.prevRange === null) return null;
-  const trigger = s.todayOpen + 0.5 * s.prevRange;
-  return {
-    instId: s.instId,
-    todayOpen: s.todayOpen,
-    prevRange: s.prevRange,
-    trigger,
-    distToTriggerPct: ((trigger - s.last) / s.last) * 100,
-  };
-}
 
 export function breakoutMenu(bee: BeeAccount, market: MarketData, cfg: EngineConfig): MoveMenu {
   const style = "breakout" as const;
   // bee.coins and the style universe hold base symbols ("BTC"); the market map is keyed by instId.
-  const universe = (bee.coins ?? cfg.breakout.universe).map((c) => `${c}-USDT-SWAP`);
+  const universe = cfg.breakout.universe.map((c) => `${c}-USDT-SWAP`);
   const options: MoveOption[] = [];
-  const setups = breakoutSetups(market, universe).filter((st) => {
-    const s = market.byInst[st.instId];
-    return s && gated(s, cfg.min24hVolUsd, cfg.breakout.spreadGateBps);
-  });
   if (!bee.position) {
-    for (const st of setups.filter((st) => market.byInst[st.instId].last > st.trigger)) {
+    for (const instId of universe) {
+      const s = market.byInst[instId];
+      if (!s || s.todayOpen === null || s.prevRange === null) continue;
+      const trigger = s.todayOpen + 0.5 * s.prevRange;
+      if (s.last <= trigger) continue;
+      if (!gated(s, cfg.min24hVolUsd, cfg.breakout.spreadGateBps)) continue;
       // Z2 funding veto at menu level (BIZZY_BEE.md: only offer valid moves):
       // a long whose 30-day funding z > 1.5 is not a valid move right now.
-      const fz = market.byInst[st.instId].fundingZ;
-      if (fz !== null && fz > FUNDING_Z_BLOCK) continue;
-      options.push({ action: `LONG_${st.instId}`, label: `breakout long ${st.instId}`, kind: "open", instId: st.instId, side: "long", sizeFrac: 1 });
+      if (s.fundingZ !== null && s.fundingZ > FUNDING_Z_BLOCK) continue;
+      options.push({ action: `LONG_${instId}`, label: `breakout long ${instId}`, kind: "open", instId, side: "long", sizeFrac: 1 });
     }
   } else {
     const p = bee.position;
@@ -89,7 +57,6 @@ export function breakoutMenu(bee: BeeAccount, market: MarketData, cfg: EngineCon
     options: options.length ? options : [{ action: "WAIT", label: "no valid setup — wait", kind: "wait" }],
     convictionScale: CONVICTION_SCALES.breakout,
     forced: null, // live rules: she is never forced in
-    forcedReason: null,
   };
 }
 
@@ -99,7 +66,7 @@ export function breakoutMenu(bee: BeeAccount, market: MarketData, cfg: EngineCon
 
 export function trendMenu(bee: BeeAccount, market: MarketData, cfg: EngineConfig): MoveMenu {
   const style = "trend" as const;
-  const universe = bee.coins ?? cfg.trend.universe;
+  const universe = cfg.trend.universe;
   const options: MoveOption[] = [];
   const scored = universe
     .map((c) => ({ coin: c, s: market.byInst[`${c}-USDT-SWAP`] }))
@@ -135,7 +102,6 @@ export function trendMenu(bee: BeeAccount, market: MarketData, cfg: EngineConfig
             sizeFrac: 0, // risk layer converts to minSizeUsd
           }
         : null,
-    forcedReason: !p && scored.length ? "never flat (forced minimum toward the stronger score)" : null,
   };
 }
 
@@ -194,7 +160,6 @@ export function momentumMenu(bee: BeeAccount, market: MarketData, cfg: EngineCon
           sizeFrac: 0.5,
         }
       : null,
-    forcedReason: !p && cands.length ? "never flat for more than one tick (forced APE on top candidate)" : null,
   };
 }
 
@@ -207,37 +172,4 @@ export function buildMenu(bee: BeeAccount, market: MarketData, cfg: EngineConfig
     case "momentum":
       return momentumMenu(bee, market, cfg);
   }
-}
-
-/** Compact numeric snapshot sent to Jev as state (rounded to keep tokens down). */
-export function beeState(bee: BeeAccount, market: MarketData, menu: MoveMenu): Record<string, unknown> {
-  const p = bee.position;
-  const posSnap = p ? market.byInst[p.instId] : undefined;
-  const atrPx = posSnap?.atrPct ? (posSnap.atrPct / 100) * p!.entryPrice : 0;
-  const pnlUsd = p && posSnap ? (posSnap.last - p.entryPrice) * (p.side === "long" ? 1 : -1) * (p.notionalUsd / Math.max(p.entryPrice, 1e-9)) : 0;
-  return {
-    bee: { style: bee.style, startEquity: f(bee.startEquityUsd), realizedPnl: f(bee.realizedPnl), feesToday: f(bee.feesToday), tradesToday: bee.tradesToday },
-    position: p
-      ? { instId: p.instId, side: p.side, notional: f(p.notionalUsd), entry: p.entryPrice, mark: posSnap?.last ?? null, pnlUsd: f(pnlUsd), pnlR: atrPx ? f(pnlUsd / atrPx, 2) : null }
-      : null,
-    coins: Object.values(market.byInst)
-      .filter((s) => menu.options.some((o) => o.instId === s.instId) || (p && s.instId === p.instId))
-      .slice(0, 12)
-      .map((s) => ({
-        coin: s.instId.replace("-USDT-SWAP", ""),
-        last: s.last,
-        spreadBps: f(s.spreadBps, 1),
-        r1h: s.r1 === null ? null : f(s.r1 * 100, 2),
-        r24h: s.r24 === null ? null : f(s.r24 * 100, 2),
-        r7d: s.r7d === null ? null : f(s.r7d * 100, 2),
-        rsi: s.rsi === null ? null : f(s.rsi, 1),
-        pctB: s.pctB === null ? null : f(s.pctB, 3),
-        atrPct: s.atrPct === null ? null : f(s.atrPct, 2),
-        ensemble: s.ensemble,
-        funding: s.funding === null ? null : f(s.funding * 100, 4),
-        fundingZ: s.fundingZ === null ? null : f(s.fundingZ, 2),
-        oi1h: s.oiChange1h === null ? null : f(s.oiChange1h * 100, 2),
-        volZ: s.volZ === null ? null : f(s.volZ, 2),
-      })),
-  };
 }
