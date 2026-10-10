@@ -4,9 +4,9 @@
   "description": "Interactive browser-based tokamak plasma physics playground — 0-D power balance, Bosch-Hale reactivity, IPB98 confinement, stability limits, 3D torus",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3400",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3400",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

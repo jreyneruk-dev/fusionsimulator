@@ -13,3 +13,7 @@ out/
 # Build artifacts
 tsconfig.tsbuildinfo
 next-env.d.ts
+
+# kin/ is its own repository (kin/.git, remote jreyneruk-dev/kin) — never
+# `git add` it from here. Deliberately NOT ignored, so the editor/tooling can
+# still open its files (an ignore rule hides them from the workspace index).
